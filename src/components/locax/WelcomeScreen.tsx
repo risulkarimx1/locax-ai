@@ -5,6 +5,7 @@ import type { ProjectState } from "@/types/locax";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport, getSampleData } from "@/lib/file-system";
+import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint } from "@/lib/ai-config";
 
 interface WelcomeScreenProps {
   onProjectLoad: (state: ProjectState) => void;
@@ -16,6 +17,10 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
 
   const handleTrySample = () => {
     const { languages, rows } = getSampleData();
+    const aiProvider = getStoredAiProvider();
+    const aiApiKey = getStoredApiKey(aiProvider) || undefined;
+    const aiModel = getStoredModel(aiProvider) || undefined;
+    const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
     
     onProjectLoad({
       folderHandle: null as any,
@@ -24,7 +29,10 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       gitBranch: 'main',
       languages,
       rows,
-      aiApiKey: undefined,
+      aiApiKey,
+      aiProvider,
+      aiModel,
+      aiEndpoint,
     });
 
     toast({
@@ -46,8 +54,10 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         const { languages, rows } = await parseSourceFile(file);
         const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, '');
 
-        // Load AI key from localStorage
-        const aiApiKey = localStorage.getItem('locax-ai-key') || undefined;
+        const aiProvider = getStoredAiProvider();
+        const aiApiKey = getStoredApiKey(aiProvider) || undefined;
+        const aiModel = getStoredModel(aiProvider) || undefined;
+        const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
 
         onProjectLoad({
           folderHandle: null as any,
@@ -57,6 +67,9 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
           languages,
           rows,
           aiApiKey,
+          aiProvider,
+          aiModel,
+          aiEndpoint,
         });
 
         toast({

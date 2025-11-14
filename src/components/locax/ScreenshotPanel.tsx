@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Upload, Sparkles, PanelRightClose } from "lucide-react";
-import type { LocalizationRow } from "@/types/locax";
+import type { LocalizationRow, AIProvider } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
 import { generateTranslations } from "@/lib/ai-service";
 
@@ -12,10 +12,23 @@ interface ScreenshotPanelProps {
   onUpdateRow: (key: string, updates: Partial<LocalizationRow>) => void;
   onClose: () => void;
   aiApiKey?: string;
+  aiProvider?: AIProvider;
+  aiModel?: string;
+  aiEndpoint?: string;
   languages: string[];
 }
 
-export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose, aiApiKey, languages }: ScreenshotPanelProps) => {
+export const ScreenshotPanel = ({
+  selectedRow,
+  allRows,
+  onUpdateRow,
+  onClose,
+  aiApiKey,
+  aiProvider,
+  aiModel,
+  aiEndpoint,
+  languages,
+}: ScreenshotPanelProps) => {
   const { toast } = useToast();
   const [linkedKeys, setLinkedKeys] = useState<Set<string>>(new Set());
   const [isGeneratingContext, setIsGeneratingContext] = useState(false);
@@ -92,10 +105,13 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose, ai
 
   const handleTranslate = async () => {
     if (!selectedRow) return;
-    if (!aiApiKey) {
+    const provider = aiProvider ?? "openai";
+    const requiresApiKey = provider !== "ollama";
+
+    if (requiresApiKey && !aiApiKey) {
       toast({
         title: "Connect AI",
-        description: "Add your OpenAI API key to generate translations.",
+        description: "Add your AI provider API key to generate translations.",
         variant: "destructive",
       });
       return;
@@ -123,11 +139,32 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose, ai
     setIsTranslating(true);
 
     try {
+      if (provider === "openrouter" && !aiModel?.trim()) {
+        toast({
+          title: "Model required",
+          description: "Select an OpenRouter model in Connect AI before generating translations.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (provider === "ollama" && !aiModel?.trim()) {
+        toast({
+          title: "Model required",
+          description: "Select an Ollama model in Connect AI before generating translations.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const translations = await generateTranslations({
         apiKey: aiApiKey,
         sourceText,
         languages: translationTargets,
         context: selectedRow.context,
+        provider,
+        model: aiModel,
+        endpoint: aiEndpoint,
       });
 
       if (Object.keys(translations).length === 0) {

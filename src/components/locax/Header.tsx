@@ -17,13 +17,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Search, Globe, Zap, GitBranch, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
-import type { ProjectState } from "@/types/locax";
-import { useState } from "react";
+import type { ProjectState, AIProvider } from "@/types/locax";
+import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { exportSourceCSV } from "@/lib/file-system";
+import { DEFAULT_AI_PROVIDER, getStoredApiKey, getStoredEndpoint, getStoredModel, persistAiSettings } from "@/lib/ai-config";
 
 interface HeaderProps {
   projectState: ProjectState;
@@ -43,19 +51,194 @@ export const Header = ({
   lastSaved 
 }: HeaderProps) => {
   const { toast } = useToast();
+  const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [modelInput, setModelInput] = useState("");
+  const [endpointInput, setEndpointInput] = useState("");
+  const [providerSelection, setProviderSelection] = useState<AIProvider>(projectState.aiProvider || DEFAULT_AI_PROVIDER);
   const [addLanguageDialogOpen, setAddLanguageDialogOpen] = useState(false);
   const [newLanguageName, setNewLanguageName] = useState("");
   const [newLanguageCode, setNewLanguageCode] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaLoading, setOllamaLoading] = useState(false);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [modelManuallySet, setModelManuallySet] = useState(false);
+  const [ollamaRefreshCounter, setOllamaRefreshCounter] = useState(0);
+  const providerLabels: Record<AIProvider, string> = useMemo(
+    () => ({
+      openai: "OpenAI",
+      gemini: "Gemini",
+      openrouter: "OpenRouter",
+      ollama: "Ollama",
+    }),
+    []
+  );
+  const activeProvider = projectState.aiProvider || DEFAULT_AI_PROVIDER;
+  const activeProviderLabel = providerLabels[activeProvider];
+  const isAiConfigured = projectState.aiProvider === "ollama" ? Boolean(projectState.aiModel) : Boolean(projectState.aiApiKey);
+  const ollamaSelectValue = useMemo(
+    () => (ollamaModels.includes(modelInput) ? modelInput : undefined),
+    [ollamaModels, modelInput]
+  );
+  const sanitizeEndpoint = (value: string) => (value ? value.trim().replace(/\/+$/, "") : "");
+
+  useEffect(() => {
+    if (!aiDialogOpen) return;
+
+    const provider = projectState.aiProvider || DEFAULT_AI_PROVIDER;
+    setProviderSelection(provider);
+    setApiKeyInput(projectState.aiApiKey || getStoredApiKey(provider) || "");
+    const storedModel = projectState.aiModel || getStoredModel(provider) || "";
+    setModelInput(provider === "openrouter" || provider === "ollama" ? storedModel : "");
+    const storedEndpoint =
+      provider === "ollama"
+        ? projectState.aiEndpoint || getStoredEndpoint(provider) || DEFAULT_OLLAMA_ENDPOINT
+        : "";
+    setEndpointInput(storedEndpoint);
+    setModelManuallySet(Boolean(storedModel));
+    if (provider !== "ollama") {
+      setOllamaModels([]);
+      setOllamaError(null);
+    }
+  }, [
+    aiDialogOpen,
+    projectState.aiApiKey,
+    projectState.aiEndpoint,
+    projectState.aiModel,
+    projectState.aiProvider,
+  ]);
+
+  useEffect(() => {
+    if (!aiDialogOpen || providerSelection !== "ollama") {
+      return;
+    }
+
+    const base = sanitizeEndpoint(endpointInput || DEFAULT_OLLAMA_ENDPOINT);
+    if (!base) return;
+
+    let cancelled = false;
+    setOllamaLoading(true);
+    setOllamaError(null);
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(`${base}/api/tags`);
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        const models = Array.isArray(data?.models)
+          ? data.models
+              .map((model: any) => model?.name)
+              .filter((name: unknown): name is string => typeof name === "string")
+          : [];
+        if (!cancelled) {
+          setOllamaModels(models);
+          setModelInput((current) => {
+            if (current || !models.length || modelManuallySet) {
+              return current;
+            }
+            return models[0];
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOllamaModels([]);
+          setOllamaError(`Could not reach Ollama at ${base}. Ensure the daemon is running.`);
+        }
+      } finally {
+        if (!cancelled) {
+          setOllamaLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [
+    aiDialogOpen,
+    providerSelection,
+    endpointInput,
+    modelManuallySet,
+    ollamaRefreshCounter,
+  ]);
+
+  const handleProviderSelect = (value: AIProvider) => {
+    setProviderSelection(value);
+    setApiKeyInput(getStoredApiKey(value) || "");
+    const storedModel = getStoredModel(value) || "";
+    setModelInput(value === "openrouter" || value === "ollama" ? storedModel : "");
+    setModelManuallySet(Boolean(storedModel));
+    if (value === "ollama") {
+      setEndpointInput(getStoredEndpoint(value) || projectState.aiEndpoint || DEFAULT_OLLAMA_ENDPOINT);
+    } else {
+      setEndpointInput("");
+      setOllamaModels([]);
+      setOllamaError(null);
+    }
+  };
+
+  const handleModelValueChange = (value: string) => {
+    setModelManuallySet(true);
+    setModelInput(value);
+  };
 
   const handleSaveApiKey = () => {
-    localStorage.setItem('locax-ai-key', apiKeyInput);
-    setProjectState({ ...projectState, aiApiKey: apiKeyInput });
+    const requiresApiKey = providerSelection !== "ollama";
+    const trimmedKey = requiresApiKey ? apiKeyInput.trim() : "";
+    const resolvedApiKey = requiresApiKey ? trimmedKey || undefined : undefined;
+    const trimmedModel =
+      providerSelection === "openrouter" || providerSelection === "ollama"
+        ? modelInput.trim()
+        : undefined;
+    const resolvedEndpoint =
+      providerSelection === "ollama"
+        ? sanitizeEndpoint(endpointInput || DEFAULT_OLLAMA_ENDPOINT) || DEFAULT_OLLAMA_ENDPOINT
+        : undefined;
+
+    if (providerSelection === "openrouter" && resolvedApiKey && !trimmedModel) {
+      toast({
+        title: "Model required",
+        description: "Enter an OpenRouter model identifier (e.g., google/gemini-flash-1.5).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (providerSelection === "ollama" && !trimmedModel) {
+      toast({
+        title: "Model required",
+        description: "Select an Ollama model or enter one manually.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    persistAiSettings(providerSelection, {
+      apiKey: resolvedApiKey,
+      model: trimmedModel,
+      endpoint: resolvedEndpoint,
+    });
+    setProjectState({
+      ...projectState,
+      aiApiKey: resolvedApiKey,
+      aiProvider: providerSelection,
+      aiModel: providerSelection === "openrouter" || providerSelection === "ollama" ? trimmedModel : undefined,
+      aiEndpoint: providerSelection === "ollama" ? resolvedEndpoint : undefined,
+    });
     setAiDialogOpen(false);
+
+    const connected =
+      providerSelection === "ollama" ? Boolean(trimmedModel) : Boolean(resolvedApiKey);
+
     toast({
-      title: "AI Connected",
-      description: "Your API key has been saved securely.",
+      title: connected ? "AI Connected" : "AI Disconnected",
+      description: connected
+        ? `${providerLabels[providerSelection]} will power automatic translations.`
+        : "Stored AI configuration removed.",
     });
   };
 
@@ -255,15 +438,15 @@ export const Header = ({
           </DropdownMenu>
 
           <Button
-            variant={projectState.aiApiKey ? "outline" : "default"}
+            variant={isAiConfigured ? "outline" : "default"}
             size="sm"
             className="gap-2"
             onClick={() => setAiDialogOpen(true)}
           >
             <Zap className="w-4 h-4" />
-            {projectState.aiApiKey ? (
+            {isAiConfigured ? (
               <>
-                AI
+                {activeProviderLabel}
                 <div className="w-2 h-2 rounded-full bg-success" />
               </>
             ) : (
@@ -278,22 +461,110 @@ export const Header = ({
           <DialogHeader>
             <DialogTitle>Connect AI</DialogTitle>
             <DialogDescription>
-              Enter your OpenAI API key to enable AI-powered context generation and translations.
+              Choose OpenAI, Gemini, OpenRouter, or Ollama and configure the required credentials to enable AI-powered context generation and translations.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="apiKey">API Key</Label>
-              <Input
-                id="apiKey"
-                type="password"
-                placeholder="sk-..."
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-              />
+              <Label>Provider</Label>
+              <Select value={providerSelection} onValueChange={(value) => handleProviderSelect(value as AIProvider)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an AI provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="openrouter">OpenRouter</SelectItem>
+                  <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            {providerSelection !== "ollama" && (
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">API Key</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  placeholder={
+                    providerSelection === "gemini"
+                      ? "AIza..."
+                      : providerSelection === "openrouter"
+                        ? "or-..."
+                        : "sk-..."
+                  }
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                />
+              </div>
+            )}
+            {providerSelection === "openrouter" && (
+              <div className="space-y-2">
+                <Label htmlFor="modelId">Model ID</Label>
+                <Input
+                  id="modelId"
+                  placeholder="e.g., google/gemini-flash-1.5"
+                  value={modelInput}
+                  onChange={(e) => handleModelValueChange(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Pick any model ID listed on openrouter.ai/models. Leave blank when using OpenAI or Gemini directly.
+                </p>
+              </div>
+            )}
+            {providerSelection === "ollama" && (
+              <div className="space-y-4 rounded-md border p-4 bg-muted/30">
+                <div className="space-y-2">
+                  <Label htmlFor="ollamaEndpoint">Ollama Endpoint</Label>
+                  <Input
+                    id="ollamaEndpoint"
+                    placeholder="http://127.0.0.1:11434"
+                    value={endpointInput}
+                    onChange={(e) => setEndpointInput(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ensure <code>ollama serve</code> is running locally so Locax can reach your models.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Local Models</Label>
+                  {ollamaLoading && (
+                    <p className="text-xs text-muted-foreground">Detecting local models...</p>
+                  )}
+                  {ollamaError && (
+                    <p className="text-xs text-destructive">{ollamaError}</p>
+                  )}
+                  {ollamaModels.length > 0 && (
+                    <Select value={ollamaSelectValue} onValueChange={(value) => handleModelValueChange(value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a local model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ollamaModels.map((model) => (
+                          <SelectItem key={model} value={model}>
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="e.g., codellama:34b"
+                      value={modelInput}
+                      onChange={(e) => handleModelValueChange(e.target.value)}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => setOllamaRefreshCounter((count) => count + 1)}>
+                      Refresh
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Select a detected model or type one manually. No API key is required for local models.
+                  </p>
+                </div>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
-              Your API key is stored locally and never sent to our servers.
+              Your provider settings are stored locally and never sent to our servers.
             </p>
           </div>
           <DialogFooter>

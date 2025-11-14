@@ -10,7 +10,7 @@ A professional localization dashboard for game developers. Manage translations, 
 - **Category Tree**: Organize localization keys by category with an intuitive folder structure
 - **Multi-language Support**: Add, remove, and manage multiple language columns
 - **Screenshot Context**: Attach screenshots to keys and link multiple keys to the same screenshot
-- **AI Assistance**: Generate context descriptions and translations (bring your own API key)
+- **AI Assistance**: Generate context descriptions and translations (supports OpenAI, Gemini, OpenRouter, and local Ollama models)
 - **Auto-save**: Changes are automatically saved back to your CSV file
 - **Beautiful UI**: Professional design inspired by modern developer tools
 
@@ -48,10 +48,21 @@ dialog:greeting,NPC initial greeting,Hello traveler!,¡Hola viajero!,こんに�
 
 ### Using AI Features
 1. Click "Connect AI" in the header
-2. Enter your OpenAI API key
+2. Choose OpenAI, Gemini, OpenRouter, or Ollama (local).  
+   - OpenAI/Gemini: paste the respective API key.  
+   - OpenRouter: enter your OpenRouter key + a hosted model ID (e.g., `google/gemini-flash-1.5`).  
+   - Ollama: ensure `ollama serve` is running locally, pick one of the detected models (e.g., `codellama:34b`), and specify a custom endpoint if needed (defaults to `http://127.0.0.1:11434`).
 3. Select a key and upload a screenshot
 4. Click "Generate Context" to auto-generate context descriptions
 5. Click "Translate" to generate translations for all languages
+
+### Supported AI Providers
+- **OpenAI**: Uses the `gpt-4o-mini` chat completions API for high-quality responses.
+- **Google Gemini**: Uses the `gemini-1.5-flash-latest` model via the Generative Language API.
+- **OpenRouter**: Uses the OpenAI-compatible chat completions endpoint. Pick any hosted model ID (e.g., `google/gemini-flash-1.5`) from [openrouter.ai/models](https://openrouter.ai/models) and provide your OpenRouter API key.
+- **Ollama (Local)**: Connects to a running `ollama serve` instance (default `http://127.0.0.1:11434`). Locax lists locally downloaded models so you can select and use them without any API keys.
+
+Locax stores API keys, model choices, and endpoints locally per provider, so you can switch between OpenAI, Gemini, OpenRouter, and Ollama without re-entering settings. Pick the provider that matches your budget/latency needs and ensure translations comply with each platform's usage policies.
 
 ### Git Branch
 If your project is in a Git repository, Locax will automatically detect and display the current branch in the header.

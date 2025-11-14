@@ -1,3 +1,5 @@
+export type AIProvider = "openai" | "gemini" | "openrouter" | "ollama";
+
 export interface LocalizationRow {
   key: string; // format: category:keyname
   context: string;
@@ -14,6 +16,9 @@ export interface ProjectState {
   languages: string[]; // ['en', 'es', 'ja', ...]
   rows: LocalizationRow[];
   aiApiKey?: string;
+  aiProvider?: AIProvider;
+  aiModel?: string;
+  aiEndpoint?: string;
 }
 
 export interface CategoryNode {
