@@ -22,7 +22,7 @@ import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
 import type { ProjectState } from "@/types/locax";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { parseSourceCSV } from "@/lib/csv-parser";
+import { parseSourceFile } from "@/lib/source-file-parser";
 import { exportSourceCSV } from "@/lib/file-system";
 
 interface HeaderProps {
@@ -117,14 +117,13 @@ export const Header = ({
     try {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.csv';
+      input.accept = '.csv,.xlsx,.xls';
       
       input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
 
-        const csvContent = await file.text();
-        const { languages, rows } = parseSourceCSV(csvContent);
+        const { languages, rows } = await parseSourceFile(file);
 
         setProjectState({
           ...projectState,
@@ -133,7 +132,7 @@ export const Header = ({
         });
 
         toast({
-          title: "Source CSV imported",
+          title: "Source file imported",
           description: `Imported ${rows.length} keys with ${languages.length} languages.`,
         });
       };
@@ -190,7 +189,7 @@ export const Header = ({
             <DropdownMenuContent align="start">
               <DropdownMenuItem onClick={handleImportSource}>
                 <Upload className="w-4 h-4 mr-2" />
-                Import Source CSV
+                Import Source CSV / Excel
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleExportSource}>
                 <Download className="w-4 h-4 mr-2" />

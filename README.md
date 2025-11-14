@@ -5,6 +5,7 @@ A professional localization dashboard for game developers. Manage translations, 
 ## Features
 
 - **Local-first**: Works directly with your project folder and CSV files using the File System Access API
+- **Spreadsheet support**: Import CSV or Excel source files and keep the structure in sync
 - **Git Integration**: Automatically detects and displays the current Git branch
 - **Category Tree**: Organize localization keys by category with an intuitive folder structure
 - **Multi-language Support**: Add, remove, and manage multiple language columns
@@ -24,8 +25,8 @@ Click "Try Sample Project" on the welcome screen to explore Locax with demo data
 3. Locax will automatically find CSV files in the folder
 4. Start editing your localizations!
 
-### CSV Format
-Your CSV file should have the following structure:
+### CSV/Excel Format
+Your CSV or Excel file should have the following structure:
 ```csv
 key,context,en,es,ja
 ui:start_button,Main menu start button,Start Game,Empezar Juego,ゲームを開始

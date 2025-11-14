@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { FolderOpen, Sparkles, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ProjectState } from "@/types/locax";
-import { parseSourceCSV } from "@/lib/csv-parser";
+import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport, getSampleData } from "@/lib/file-system";
 
@@ -37,14 +37,14 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
     try {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.csv';
+      input.accept = '.csv,.xlsx,.xls';
       
       input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
 
-        const csvContent = await file.text();
-        const { languages, rows } = parseSourceCSV(csvContent);
+        const { languages, rows } = await parseSourceFile(file);
+        const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, '');
 
         // Load AI key from localStorage
         const aiApiKey = localStorage.getItem('locax-ai-key') || undefined;
@@ -52,7 +52,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         onProjectLoad({
           folderHandle: null as any,
           csvFileHandle: null as any,
-          projectName: file.name.replace('.csv', ''),
+          projectName: projectBaseName || file.name,
           gitBranch: null,
           languages,
           rows,
@@ -60,7 +60,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         });
 
         toast({
-          title: "Source CSV imported",
+          title: "Source file imported",
           description: `Loaded ${rows.length} keys. Use File > Export to save changes.`,
         });
       };
@@ -104,7 +104,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
             className="gap-2"
           >
             <Upload className="w-5 h-5" />
-            Import Source CSV
+            Import Source CSV / Excel
           </Button>
 
           <Button 
@@ -119,7 +119,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         </div>
 
         <div className="text-sm text-muted-foreground pt-4">
-          <p>Import your game's source localization CSV to get started.</p>
+          <p>Import your game's source localization CSV or Excel file to get started.</p>
           <p>All changes can be exported back to the source format.</p>
         </div>
       </div>
