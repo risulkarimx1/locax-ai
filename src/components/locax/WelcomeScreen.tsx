@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { FolderOpen, Sparkles, Upload } from "lucide-react";
+import { Sparkles, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ProjectState } from "@/types/locax";
 import { parseSourceFile } from "@/lib/source-file-parser";
@@ -10,6 +10,27 @@ import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint
 interface WelcomeScreenProps {
   onProjectLoad: (state: ProjectState) => void;
 }
+
+interface DirectoryPickerOptions {
+  id?: string;
+  mode?: "read" | "readwrite";
+  startIn?:
+    | FileSystemDirectoryHandle
+    | FileSystemHandle
+    | "desktop"
+    | "documents"
+    | "downloads"
+    | "music"
+    | "pictures"
+    | "videos";
+}
+
+type DirectoryPicker = (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
+
+const getDirectoryPicker = (): DirectoryPicker | undefined => {
+  if (typeof window === "undefined") return undefined;
+  return (window as typeof window & { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
+};
 
 export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   const { toast } = useToast();
@@ -23,8 +44,8 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
     const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
     
     onProjectLoad({
-      folderHandle: null as any,
-      csvFileHandle: null as any,
+      folderHandle: null,
+      csvFileHandle: null,
       projectName: 'sample-game-project',
       gitBranch: 'main',
       languages,
@@ -39,6 +60,43 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       title: "Sample project loaded",
       description: "Exploring with demo data. Changes won't be saved.",
     });
+  };
+
+  const requestRepoContext = async (): Promise<{
+    folderHandle: FileSystemDirectoryHandle | null;
+    gitBranch: string | null;
+  }> => {
+    const showDirectoryPicker = getDirectoryPicker();
+    if (!hasFileSystemSupport || !showDirectoryPicker) {
+      return { folderHandle: null, gitBranch: null };
+    }
+
+    try {
+      toast({
+        title: "Select project folder",
+        description: "Choose the folder that contains your .git directory to show the Git branch.",
+      });
+
+      const folderHandle = await showDirectoryPicker({
+        id: "locax-project-folder",
+        mode: "read",
+      });
+
+      const gitBranch = await detectGitBranch(folderHandle);
+
+      if (!gitBranch) {
+        toast({
+          title: "Git repository not found",
+          description: "Select the repository root so Locax can read the current branch.",
+          variant: "destructive",
+        });
+      }
+
+      return { folderHandle, gitBranch };
+    } catch (error) {
+      console.info("Project folder selection cancelled", error);
+      return { folderHandle: null, gitBranch: null };
+    }
   };
 
   const handleImportSource = async () => {
@@ -59,11 +117,13 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         const aiModel = getStoredModel(aiProvider) || undefined;
         const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
 
+        const { folderHandle, gitBranch } = await requestRepoContext();
+
         onProjectLoad({
-          folderHandle: null as any,
-          csvFileHandle: null as any,
+          folderHandle,
+          csvFileHandle: null,
           projectName: projectBaseName || file.name,
-          gitBranch: null,
+          gitBranch,
           languages,
           rows,
           aiApiKey,
@@ -74,7 +134,9 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
 
         toast({
           title: "Source file imported",
-          description: `Loaded ${rows.length} keys. Use File > Export to save changes.`,
+          description: gitBranch
+            ? `Loaded ${rows.length} keys (branch: ${gitBranch}).`
+            : `Loaded ${rows.length} keys. Use File > Export to save changes.`,
         });
       };
 

@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Globe, Zap, GitBranch, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
+import { Search, Globe, Zap, GitCommit, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
 import type { ProjectState, AIProvider } from "@/types/locax";
 import { useEffect, useMemo, useState } from "react";
@@ -386,10 +385,11 @@ export const Header = ({
           <span className="text-sm text-muted-foreground">{projectState.projectName}</span>
 
           {projectState.gitBranch && (
-            <Badge variant="secondary" className="gap-1.5">
-              <GitBranch className="w-3 h-3" />
-              {projectState.gitBranch}
-            </Badge>
+            <div className="flex items-center gap-2 rounded-full border border-border/80 px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/50 dark:bg-white/5">
+              <GitCommit className="w-3.5 h-3.5 text-primary" />
+              <span className="text-foreground">{projectState.gitBranch}</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            </div>
           )}
 
           <AutoSaveIndicator isSaving={isSaving} lastSaved={lastSaved} />
