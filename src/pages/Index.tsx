@@ -5,7 +5,8 @@ import { LocalizationTable } from "@/components/locax/LocalizationTable";
 import { ScreenshotPanel } from "@/components/locax/ScreenshotPanel";
 import { WelcomeScreen } from "@/components/locax/WelcomeScreen";
 import { Button } from "@/components/ui/button";
-import { writeCSVToFile } from "@/lib/file-system";
+import { StatusBar } from "@/components/locax/StatusBar";
+import { writeCSVToFile, writeTempLocalizationFile, readTempLocalizationFile } from "@/lib/file-system";
 import type { LocalizationRow, ProjectState } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
 
@@ -16,35 +17,43 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
+  const [manualSaveStatus, setManualSaveStatus] = useState<"idle" | "saving" | "error">("idle");
   const [isScreenshotPanelVisible, setScreenshotPanelVisible] = useState(false);
 
-  // Auto-save on data changes
   useEffect(() => {
-    if (!projectState || !projectState.csvFileHandle) return;
+    if (!projectState) return;
 
-    const saveData = async () => {
+    let cancelled = false;
+    const timeoutId = setTimeout(async () => {
       try {
+        setAutoSyncStatus("syncing");
         setIsSaving(true);
-        await writeCSVToFile(
-          projectState.csvFileHandle,
-          projectState.languages,
-          projectState.rows
-        );
-        setLastSaved(new Date());
+        await writeTempLocalizationFile(projectState.languages, projectState.rows);
+        if (!cancelled) {
+          setAutoSyncStatus("idle");
+        }
       } catch (error) {
-        toast({
-          title: "Save failed",
-          description: "Could not save changes to file.",
-          variant: "destructive",
-        });
+        if (!cancelled) {
+          setAutoSyncStatus("error");
+          toast({
+            title: "Auto-sync failed",
+            description: (error as Error).message,
+            variant: "destructive",
+          });
+        }
       } finally {
-        setIsSaving(false);
+        if (!cancelled) {
+          setIsSaving(false);
+        }
       }
-    };
+    }, 1500);
 
-    const timeoutId = setTimeout(saveData, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [projectState?.rows, projectState?.languages]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [projectState?.rows, projectState?.languages, toast]);
 
   // Auto-show screenshot panel when a key is selected
   useEffect(() => {
@@ -81,6 +90,9 @@ const Index = () => {
         setSearchQuery={setSearchQuery}
         isSaving={isSaving}
         lastSaved={lastSaved}
+        onManualSave={handleManualSave}
+        manualSaveDisabled={!projectState.csvFileHandle || manualSaveStatus === "saving"}
+        isManualSaving={manualSaveStatus === "saving"}
       />
       
       <div className="relative flex flex-1 overflow-hidden">
@@ -140,8 +152,55 @@ const Index = () => {
           </div>
         )}
       </div>
+
+      <StatusBar
+        autoStatus={autoSyncStatus}
+        manualStatus={manualSaveStatus}
+        gitStatus={projectState.gitStatus ?? "unknown"}
+        gitBranch={projectState.gitBranch}
+      />
     </div>
   );
 };
 
 export default Index;
+  const handleManualSave = async () => {
+    if (!projectState?.csvFileHandle) {
+      toast({
+        title: "Manual save unavailable",
+        description: "Reimport the CSV/Excel file using a supported browser to enable saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setManualSaveStatus("saving");
+      const permission = await projectState.csvFileHandle.requestPermission?.({ mode: "readwrite" });
+      if (permission === "denied") {
+        throw new Error("Permission denied for writing to the source file.");
+      }
+
+      const tempContent = (await readTempLocalizationFile()) ?? undefined;
+      await writeCSVToFile(
+        projectState.csvFileHandle,
+        projectState.languages,
+        projectState.rows,
+        tempContent
+      );
+      setLastSaved(new Date());
+      setManualSaveStatus("idle");
+      toast({
+        title: "Saved",
+        description: "Changes written to the original file.",
+      });
+    } catch (error) {
+      setManualSaveStatus("error");
+      toast({
+        title: "Save failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+      setTimeout(() => setManualSaveStatus("idle"), 2500);
+    }
+  };

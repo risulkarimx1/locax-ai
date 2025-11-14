@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Sparkles, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ProjectState } from "@/types/locax";
+import type { ProjectState, GitStatus } from "@/types/locax";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport, getSampleData } from "@/lib/file-system";
@@ -26,10 +26,16 @@ interface DirectoryPickerOptions {
 }
 
 type DirectoryPicker = (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
+type OpenFilePicker = (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandle[]>;
 
 const getDirectoryPicker = (): DirectoryPicker | undefined => {
   if (typeof window === "undefined") return undefined;
   return (window as typeof window & { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
+};
+
+const getFilePicker = (): OpenFilePicker | undefined => {
+  if (typeof window === "undefined") return undefined;
+  return (window as typeof window & { showOpenFilePicker?: OpenFilePicker }).showOpenFilePicker;
 };
 
 export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
@@ -48,6 +54,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       csvFileHandle: null,
       projectName: 'sample-game-project',
       gitBranch: 'main',
+      gitStatus: "found",
       languages,
       rows,
       aiApiKey,
@@ -65,10 +72,11 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   const requestRepoContext = async (): Promise<{
     folderHandle: FileSystemDirectoryHandle | null;
     gitBranch: string | null;
+    gitStatus: GitStatus;
   }> => {
     const showDirectoryPicker = getDirectoryPicker();
     if (!hasFileSystemSupport || !showDirectoryPicker) {
-      return { folderHandle: null, gitBranch: null };
+      return { folderHandle: null, gitBranch: null, gitStatus: "unknown" };
     }
 
     try {
@@ -92,62 +100,95 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
         });
       }
 
-      return { folderHandle, gitBranch };
+      return { folderHandle, gitBranch, gitStatus: gitBranch ? "found" : "missing" };
     } catch (error) {
       console.info("Project folder selection cancelled", error);
-      return { folderHandle: null, gitBranch: null };
+      return { folderHandle: null, gitBranch: null, gitStatus: "unknown" };
     }
   };
 
   const handleImportSource = async () => {
     try {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.csv,.xlsx,.xls';
-      
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-
-        const { languages, rows } = await parseSourceFile(file);
-        const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, '');
-
-        const aiProvider = getStoredAiProvider();
-        const aiApiKey = getStoredApiKey(aiProvider) || undefined;
-        const aiModel = getStoredModel(aiProvider) || undefined;
-        const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
-
-        const { folderHandle, gitBranch } = await requestRepoContext();
-
-        onProjectLoad({
-          folderHandle,
-          csvFileHandle: null,
-          projectName: projectBaseName || file.name,
-          gitBranch,
-          languages,
-          rows,
-          aiApiKey,
-          aiProvider,
-          aiModel,
-          aiEndpoint,
+      const openFilePicker = getFilePicker();
+      if (openFilePicker) {
+        const [fileHandle] = await openFilePicker({
+          multiple: false,
+          types: [
+            {
+              description: "Localization files",
+              accept: {
+                "text/csv": [".csv"],
+                "application/vnd.ms-excel": [".xls"],
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+              },
+            },
+          ],
+          excludeAcceptAllOption: true,
         });
 
-        toast({
-          title: "Source file imported",
-          description: gitBranch
-            ? `Loaded ${rows.length} keys (branch: ${gitBranch}).`
-            : `Loaded ${rows.length} keys. Use File > Export to save changes.`,
-        });
-      };
+        if (!fileHandle) return;
 
-      input.click();
+        await fileHandle.requestPermission?.({ mode: "readwrite" });
+
+        const file = await fileHandle.getFile();
+        await importProjectFromFile(file, fileHandle);
+      } else {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".csv,.xlsx,.xls";
+
+        input.onchange = async (e) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+          await importProjectFromFile(file, null);
+        };
+
+        input.click();
+      }
     } catch (error) {
+      if ((error as DOMException)?.name === "AbortError") {
+        return;
+      }
       toast({
         title: "Import failed",
         description: (error as Error).message,
         variant: "destructive",
       });
     }
+  };
+
+  const importProjectFromFile = async (file: File, fileHandle: FileSystemFileHandle | null) => {
+    const { languages, rows } = await parseSourceFile(file);
+    const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, "");
+
+    const aiProvider = getStoredAiProvider();
+    const aiApiKey = getStoredApiKey(aiProvider) || undefined;
+    const aiModel = getStoredModel(aiProvider) || undefined;
+    const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
+
+    const { folderHandle, gitBranch, gitStatus } = await requestRepoContext();
+
+    onProjectLoad({
+      folderHandle,
+      csvFileHandle: fileHandle,
+      projectName: projectBaseName || file.name,
+      gitBranch,
+      gitStatus,
+      languages,
+      rows,
+      aiApiKey,
+      aiProvider,
+      aiModel,
+      aiEndpoint,
+    });
+
+    toast({
+      title: "Source file imported",
+      description:
+        gitStatus === "found" && gitBranch
+          ? `Loaded ${rows.length} keys (branch: ${gitBranch}).`
+          : `Loaded ${rows.length} keys. Use File > Export to save changes.`,
+    });
   };
 
   return (

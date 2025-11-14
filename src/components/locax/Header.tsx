@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Globe, Zap, GitCommit, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
+import { Search, Globe, Zap, GitCommit, Save, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
 import type { ProjectState, AIProvider } from "@/types/locax";
 import { useEffect, useMemo, useState } from "react";
@@ -39,6 +39,9 @@ interface HeaderProps {
   setSearchQuery: (query: string) => void;
   isSaving: boolean;
   lastSaved: Date | null;
+  onManualSave: () => void;
+  manualSaveDisabled: boolean;
+  isManualSaving: boolean;
 }
 
 export const Header = ({ 
@@ -47,7 +50,10 @@ export const Header = ({
   searchQuery, 
   setSearchQuery,
   isSaving,
-  lastSaved 
+  lastSaved,
+  onManualSave,
+  manualSaveDisabled,
+  isManualSaving,
 }: HeaderProps) => {
   const { toast } = useToast();
   const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
@@ -377,18 +383,41 @@ export const Header = ({
                 <Download className="w-4 h-4 mr-2" />
                 Export Source CSV
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={onManualSave} disabled={manualSaveDisabled}>
+                <Save className="w-4 h-4 mr-2" />
+                Save to Source
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={onManualSave}
+            disabled={manualSaveDisabled}
+          >
+            <Save className="w-4 h-4" />
+            {isManualSaving ? "Saving..." : "Save"}
+          </Button>
 
           <div className="h-6 w-px bg-border" />
 
           <span className="text-sm text-muted-foreground">{projectState.projectName}</span>
 
-          {projectState.gitBranch && (
+          {projectState.gitStatus === "found" && projectState.gitBranch && (
             <div className="flex items-center gap-2 rounded-full border border-border/80 px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/50 dark:bg-white/5">
               <GitCommit className="w-3.5 h-3.5 text-primary" />
               <span className="text-foreground">{projectState.gitBranch}</span>
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            </div>
+          )}
+
+          {projectState.gitStatus === "missing" && (
+            <div className="flex items-center gap-2 rounded-full border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive bg-destructive/10">
+              <GitCommit className="w-3.5 h-3.5" />
+              <span>Git not found</span>
+              <span className="w-2 h-2 rounded-full bg-destructive" />
             </div>
           )}
 

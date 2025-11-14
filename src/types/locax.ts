@@ -1,4 +1,5 @@
 export type AIProvider = "openai" | "gemini" | "openrouter" | "ollama";
+export type GitStatus = "unknown" | "found" | "missing";
 
 export interface LocalizationRow {
   key: string; // format: category:keyname
@@ -13,6 +14,7 @@ export interface ProjectState {
   csvFileHandle: FileSystemFileHandle | null;
   projectName: string;
   gitBranch: string | null;
+  gitStatus?: GitStatus;
   languages: string[]; // ['en', 'es', 'ja', ...]
   rows: LocalizationRow[];
   aiApiKey?: string;
