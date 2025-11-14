@@ -128,7 +128,7 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow }: Screensho
 
   if (!selectedRow) {
     return (
-      <div className="w-80 border-l bg-panel shrink-0 flex items-center justify-center p-8">
+      <div className="w-64 border-l bg-panel shrink-0 flex items-center justify-center p-8">
         <p className="text-sm text-muted-foreground text-center">
           Select a key to view and manage screenshots
         </p>
@@ -137,7 +137,7 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow }: Screensho
   }
 
   return (
-    <div className="w-80 border-l bg-panel shrink-0 flex flex-col">
+    <div className="w-64 border-l bg-panel shrink-0 flex flex-col">
       <div className="p-4 border-b">
         <h3 className="font-semibold text-sm">Screenshot Context</h3>
       </div>

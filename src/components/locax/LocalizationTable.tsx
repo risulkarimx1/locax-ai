@@ -1,9 +1,40 @@
-import { useState } from "react";
-import { Input } from "@/components/ui/input";
+import { useEffect, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/locax/EmptyState";
 import type { LocalizationRow } from "@/types/locax";
 import { cn } from "@/lib/utils";
+
+type ColumnWidths = Record<string, number>;
+
+const MIN_COLUMN_WIDTH = 140;
+const DEFAULT_COLUMN_WIDTHS = {
+  key: 200,
+  context: 300,
+  lang: 220,
+};
+
+const getLangColumnKey = (lang: string) => `lang-${lang}`;
+
+const getDefaultWidth = (columnKey: string): number => {
+  if (columnKey === "key") return DEFAULT_COLUMN_WIDTHS.key;
+  if (columnKey === "context") return DEFAULT_COLUMN_WIDTHS.context;
+  return DEFAULT_COLUMN_WIDTHS.lang;
+};
+
+const normalizeWidths = (current: ColumnWidths, languages: string[]): ColumnWidths => {
+  const orderedKeys = ["key", "context", ...languages.map(getLangColumnKey)];
+  const next: ColumnWidths = {};
+
+  orderedKeys.forEach((key) => {
+    next[key] = current[key] ?? getDefaultWidth(key);
+  });
+
+  return next;
+};
+
+const createInitialWidths = (languages: string[]): ColumnWidths => {
+  return normalizeWidths({}, languages);
+};
 
 interface LocalizationTableProps {
   rows: LocalizationRow[];
@@ -22,6 +53,39 @@ export const LocalizationTable = ({
 }: LocalizationTableProps) => {
   const [editingCell, setEditingCell] = useState<{ key: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => createInitialWidths(languages));
+
+  useEffect(() => {
+    setColumnWidths(prev => normalizeWidths(prev, languages));
+  }, [languages]);
+
+  const getColumnWidth = (columnKey: string) => columnWidths[columnKey] ?? getDefaultWidth(columnKey);
+
+  const handleResizeStart = (columnKey: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = getColumnWidth(columnKey);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextWidth = Math.max(MIN_COLUMN_WIDTH, startWidth + delta);
+      setColumnWidths(prev => ({ ...prev, [columnKey]: nextWidth }));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   const startEditing = (key: string, field: string, currentValue: string) => {
     setEditingCell({ key, field });
@@ -66,16 +130,51 @@ export const LocalizationTable = ({
           description="Add a new key using the + button next to a category in the tree, or adjust your search query."
         />
       ) : (
-        <table className="w-full border-collapse">
-        <thead className="sticky top-0 z-10 bg-panel border-b">
-          <tr>
-            <th className="text-left px-4 py-3 text-sm font-semibold w-48">Key</th>
-            <th className="text-left px-4 py-3 text-sm font-semibold w-64">Context</th>
+        <table className="w-full border-collapse table-fixed">
+          <colgroup>
+            <col style={{ width: `${getColumnWidth('key')}px` }} />
+            <col style={{ width: `${getColumnWidth('context')}px` }} />
             {languages.map(lang => (
-              <th key={lang} className="text-left px-4 py-3 text-sm font-semibold min-w-48">
-                {lang.toUpperCase()}
-              </th>
+              <col 
+                key={lang} 
+                style={{ width: `${getColumnWidth(getLangColumnKey(lang))}px` }} 
+              />
             ))}
+          </colgroup>
+          <thead className="sticky top-0 z-10 bg-panel border-b">
+          <tr>
+            <th className="relative px-4 py-3 text-sm font-semibold text-left whitespace-nowrap group select-none">
+              Key
+              <span
+                aria-hidden="true"
+                onMouseDown={(e) => handleResizeStart('key', e)}
+                className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none bg-transparent group-hover:bg-border"
+              />
+            </th>
+            <th className="relative px-4 py-3 text-sm font-semibold text-left whitespace-nowrap group select-none">
+              Context
+              <span
+                aria-hidden="true"
+                onMouseDown={(e) => handleResizeStart('context', e)}
+                className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none bg-transparent group-hover:bg-border"
+              />
+            </th>
+            {languages.map(lang => {
+              const columnKey = getLangColumnKey(lang);
+              return (
+                <th 
+                  key={columnKey} 
+                  className="relative px-4 py-3 text-sm font-semibold text-left whitespace-nowrap group select-none"
+                >
+                  {lang.toUpperCase()}
+                  <span
+                    aria-hidden="true"
+                    onMouseDown={(e) => handleResizeStart(columnKey, e)}
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none bg-transparent group-hover:bg-border"
+                  />
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -160,7 +259,7 @@ export const LocalizationTable = ({
             );
           })}
         </tbody>
-      </table>
+        </table>
       )}
     </div>
   );
