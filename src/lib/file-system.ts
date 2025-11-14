@@ -1,4 +1,4 @@
-import { serializeCSV } from "./csv-parser";
+import { serializeCSV, serializeSourceCSV } from "./csv-parser";
 import type { LocalizationRow } from "@/types/locax";
 
 export async function writeCSVToFile(
@@ -7,7 +7,6 @@ export async function writeCSVToFile(
   rows: LocalizationRow[]
 ): Promise<void> {
   if (!fileHandle) {
-    // Sample mode - no actual file to write to
     console.log('Sample mode: Changes not saved to disk');
     return;
   }
@@ -20,6 +19,26 @@ export async function writeCSVToFile(
   } catch (error) {
     console.error('Error writing CSV:', error);
     throw new Error('Failed to write CSV file');
+  }
+}
+
+export async function exportSourceCSV(
+  languages: string[],
+  rows: LocalizationRow[],
+  projectName: string
+): Promise<void> {
+  try {
+    const csvContent = serializeSourceCSV(languages, rows);
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName}_Localization.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Error exporting CSV:', error);
+    throw new Error('Failed to export CSV file');
   }
 }
 

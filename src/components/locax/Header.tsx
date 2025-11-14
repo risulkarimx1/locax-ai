@@ -17,11 +17,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Globe, Zap, GitBranch, Plus, Trash2 } from "lucide-react";
+import { Search, Globe, Zap, GitBranch, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
 import type { ProjectState } from "@/types/locax";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { parseSourceCSV } from "@/lib/csv-parser";
+import { exportSourceCSV } from "@/lib/file-system";
 
 interface HeaderProps {
   projectState: ProjectState;
@@ -111,6 +113,58 @@ export const Header = ({
     });
   };
 
+  const handleImportSource = async () => {
+    try {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv';
+      
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        const csvContent = await file.text();
+        const { languages, rows } = parseSourceCSV(csvContent);
+
+        setProjectState({
+          ...projectState,
+          languages,
+          rows,
+        });
+
+        toast({
+          title: "Source CSV imported",
+          description: `Imported ${rows.length} keys with ${languages.length} languages.`,
+        });
+      };
+
+      input.click();
+    } catch (error) {
+      toast({
+        title: "Import failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleExportSource = async () => {
+    try {
+      await exportSourceCSV(projectState.languages, projectState.rows, projectState.projectName);
+      
+      toast({
+        title: "Export complete",
+        description: "Source CSV has been downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <>
       <header className="flex items-center justify-between h-14 px-4 border-b bg-panel shrink-0">
@@ -125,6 +179,25 @@ export const Header = ({
             </div>
             <span className="font-bold text-lg">Locax</span>
           </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <Menu className="w-4 h-4 mr-2" />
+                File
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={handleImportSource}>
+                <Upload className="w-4 h-4 mr-2" />
+                Import Source CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportSource}>
+                <Download className="w-4 h-4 mr-2" />
+                Export Source CSV
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="h-6 w-px bg-border" />
 
