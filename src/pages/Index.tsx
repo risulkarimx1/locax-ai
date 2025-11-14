@@ -4,6 +4,7 @@ import { CategoryTree } from "@/components/locax/CategoryTree";
 import { LocalizationTable } from "@/components/locax/LocalizationTable";
 import { ScreenshotPanel } from "@/components/locax/ScreenshotPanel";
 import { WelcomeScreen } from "@/components/locax/WelcomeScreen";
+import { Button } from "@/components/ui/button";
 import { writeCSVToFile } from "@/lib/file-system";
 import type { LocalizationRow, ProjectState } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +16,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isScreenshotPanelVisible, setScreenshotPanelVisible] = useState(false);
 
   // Auto-save on data changes
   useEffect(() => {
@@ -44,6 +46,15 @@ const Index = () => {
     return () => clearTimeout(timeoutId);
   }, [projectState?.rows, projectState?.languages]);
 
+  // Auto-show screenshot panel when a key is selected
+  useEffect(() => {
+    if (selectedKey) {
+      setScreenshotPanelVisible(true);
+    } else {
+      setScreenshotPanelVisible(false);
+    }
+  }, [selectedKey]);
+
   const filteredRows = projectState?.rows.filter(row => {
     const searchLower = searchQuery.toLowerCase();
     return (
@@ -72,7 +83,7 @@ const Index = () => {
         lastSaved={lastSaved}
       />
       
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         <CategoryTree 
           rows={filteredRows}
           selectedKey={selectedKey}
@@ -100,18 +111,29 @@ const Index = () => {
           }}
         />
         
-        <ScreenshotPanel 
-          selectedRow={selectedRow}
-          allRows={projectState.rows}
-          onUpdateRow={(key, updates) => {
-            setProjectState({
-              ...projectState,
-              rows: projectState.rows.map(row => 
-                row.key === key ? { ...row, ...updates } : row
-              )
-            });
-          }}
-        />
+        {isScreenshotPanelVisible && selectedRow && (
+          <ScreenshotPanel 
+            selectedRow={selectedRow}
+            allRows={projectState.rows}
+            onUpdateRow={(key, updates) => {
+              setProjectState({
+                ...projectState,
+                rows: projectState.rows.map(row => 
+                  row.key === key ? { ...row, ...updates } : row
+                )
+              });
+            }}
+            onClose={() => setScreenshotPanelVisible(false)}
+          />
+        )}
+
+        {selectedRow && !isScreenshotPanelVisible && (
+          <div className="absolute right-4 bottom-4 z-10">
+            <Button variant="secondary" onClick={() => setScreenshotPanelVisible(true)}>
+              Show Context
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

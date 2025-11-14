@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Upload, Sparkles } from "lucide-react";
+import { Upload, Sparkles, PanelRightClose } from "lucide-react";
 import type { LocalizationRow } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
 
@@ -9,9 +9,10 @@ interface ScreenshotPanelProps {
   selectedRow: LocalizationRow | undefined;
   allRows: LocalizationRow[];
   onUpdateRow: (key: string, updates: Partial<LocalizationRow>) => void;
+  onClose: () => void;
 }
 
-export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow }: ScreenshotPanelProps) => {
+export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose }: ScreenshotPanelProps) => {
   const { toast } = useToast();
   const [linkedKeys, setLinkedKeys] = useState<Set<string>>(new Set());
   const [isGeneratingContext, setIsGeneratingContext] = useState(false);
@@ -138,8 +139,16 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow }: Screensho
 
   return (
     <div className="w-64 border-l bg-panel shrink-0 flex flex-col">
-      <div className="p-4 border-b">
+      <div className="p-4 border-b flex items-center justify-between gap-2">
         <h3 className="font-semibold text-sm">Screenshot Context</h3>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={onClose}
+          aria-label="Hide screenshot panel"
+        >
+          <PanelRightClose className="w-4 h-4" />
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
