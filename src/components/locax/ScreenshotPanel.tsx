@@ -1,22 +1,29 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Upload, Sparkles, PanelRightClose } from "lucide-react";
 import type { LocalizationRow } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
+import { generateTranslations } from "@/lib/ai-service";
 
 interface ScreenshotPanelProps {
   selectedRow: LocalizationRow | undefined;
   allRows: LocalizationRow[];
   onUpdateRow: (key: string, updates: Partial<LocalizationRow>) => void;
   onClose: () => void;
+  aiApiKey?: string;
+  languages: string[];
 }
 
-export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose }: ScreenshotPanelProps) => {
+export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose, aiApiKey, languages }: ScreenshotPanelProps) => {
   const { toast } = useToast();
   const [linkedKeys, setLinkedKeys] = useState<Set<string>>(new Set());
   const [isGeneratingContext, setIsGeneratingContext] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+
+  const translationTargets = useMemo(() => languages.filter(lang => lang !== 'en'), [languages]);
+  const hasEnglishSource = selectedRow?.translations.en?.trim();
+  const translateDisabled = isTranslating || !translationTargets.length || !hasEnglishSource;
 
   const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -85,36 +92,79 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose }: 
 
   const handleTranslate = async () => {
     if (!selectedRow) return;
-    
+    if (!aiApiKey) {
+      toast({
+        title: "Connect AI",
+        description: "Add your OpenAI API key to generate translations.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!translationTargets.length) {
+      toast({
+        title: "No target languages",
+        description: "Add another language before generating translations.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const sourceText = selectedRow.translations.en?.trim();
+    if (!sourceText) {
+      toast({
+        title: "Add English text",
+        description: "Enter the English string before requesting translations.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsTranslating(true);
-    
-    // Mock AI call - simulate delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const mockTranslations = {
-      es: `[AI] ${selectedRow.translations.en} (Español)`,
-      ja: `[AI] ${selectedRow.translations.en} (日本語)`,
-    };
-    
-    onUpdateRow(selectedRow.key, { 
-      translations: { ...selectedRow.translations, ...mockTranslations } 
-    });
-    
-    // Update linked keys
-    linkedKeys.forEach(key => {
-      const row = allRows.find(r => r.key === key);
-      if (row) {
-        onUpdateRow(key, { 
-          translations: { ...row.translations, ...mockTranslations } 
+
+    try {
+      const translations = await generateTranslations({
+        apiKey: aiApiKey,
+        sourceText,
+        languages: translationTargets,
+        context: selectedRow.context,
+      });
+
+      if (Object.keys(translations).length === 0) {
+        toast({
+          title: "No translations returned",
+          description: "The AI response did not include any translations.",
+          variant: "destructive",
         });
+        return;
       }
-    });
-    
-    setIsTranslating(false);
-    toast({
-      title: "Translations generated",
-      description: `Updated translations for ${linkedKeys.size + 1} keys.`,
-    });
+
+      onUpdateRow(selectedRow.key, { 
+        translations: { ...selectedRow.translations, ...translations } 
+      });
+      
+      linkedKeys.forEach(key => {
+        const row = allRows.find(r => r.key === key);
+        if (row) {
+          onUpdateRow(key, { 
+            translations: { ...row.translations, ...translations } 
+          });
+        }
+      });
+      
+      toast({
+        title: "Translations generated",
+        description: `Updated translations for ${linkedKeys.size + 1} keys.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Translation failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsTranslating(false);
+    }
   };
 
   const toggleLinkedKey = (key: string) => {
@@ -233,7 +283,7 @@ export const ScreenshotPanel = ({ selectedRow, allRows, onUpdateRow, onClose }: 
         <Button 
           className="w-full gap-2"
           onClick={handleTranslate}
-          disabled={isTranslating || !selectedRow.translations.en}
+          disabled={translateDisabled}
         >
           <Sparkles className="w-4 h-4" />
           {isTranslating ? 'Translating...' : 'Translate'}

@@ -124,6 +124,8 @@ const Index = () => {
               });
             }}
             onClose={() => setScreenshotPanelVisible(false)}
+            aiApiKey={projectState.aiApiKey}
+            languages={projectState.languages}
           />
         )}
 
