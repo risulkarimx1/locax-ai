@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +7,14 @@ import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport, getSampleData } from "@/lib/file-system";
 import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint } from "@/lib/ai-config";
+import { ProjectViewer } from "@/components/locax/ProjectViewer";
+import {
+  getProjectReferences,
+  markProjectOpened,
+  removeProjectReference,
+  saveProjectReference,
+  type ProjectReference,
+} from "@/lib/project-storage";
 
 interface WelcomeScreenProps {
   onProjectLoad: (state: ProjectState) => void;
@@ -38,29 +47,71 @@ const getFilePicker = (): OpenFilePicker | undefined => {
   return (window as typeof window & { showOpenFilePicker?: OpenFilePicker }).showOpenFilePicker;
 };
 
+const buildAiSettings = () => {
+  const aiProvider = getStoredAiProvider();
+  return {
+    aiProvider,
+    aiApiKey: getStoredApiKey(aiProvider) || undefined,
+    aiModel: getStoredModel(aiProvider) || undefined,
+    aiEndpoint: getStoredEndpoint(aiProvider) || undefined,
+  };
+};
+
 export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   const { toast } = useToast();
   const hasFileSystemSupport = checkFileSystemSupport();
+  const [recentProjects, setRecentProjects] = useState<ProjectReference[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingProjects(true);
+
+    getProjectReferences()
+      .then(entries => {
+        if (active) {
+          setRecentProjects(entries);
+        }
+      })
+      .catch(error => {
+        console.error("Failed to load project references", error);
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingProjects(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const refreshRecentProjects = useCallback(async () => {
+    setIsLoadingProjects(true);
+    try {
+      const entries = await getProjectReferences();
+      setRecentProjects(entries);
+    } catch (error) {
+      console.error("Failed to refresh project references", error);
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  }, []);
 
   const handleTrySample = () => {
     const { languages, rows } = getSampleData();
-    const aiProvider = getStoredAiProvider();
-    const aiApiKey = getStoredApiKey(aiProvider) || undefined;
-    const aiModel = getStoredModel(aiProvider) || undefined;
-    const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
-    
+    const aiSettings = buildAiSettings();
+
     onProjectLoad({
       folderHandle: null,
       csvFileHandle: null,
-      projectName: 'sample-game-project',
-      gitBranch: 'main',
+      projectName: "sample-game-project",
+      gitBranch: "main",
       gitStatus: "found",
       languages,
       rows,
-      aiApiKey,
-      aiProvider,
-      aiModel,
-      aiEndpoint,
+      ...aiSettings,
     });
 
     toast({
@@ -160,11 +211,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   const importProjectFromFile = async (file: File, fileHandle: FileSystemFileHandle | null) => {
     const { languages, rows } = await parseSourceFile(file);
     const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, "");
-
-    const aiProvider = getStoredAiProvider();
-    const aiApiKey = getStoredApiKey(aiProvider) || undefined;
-    const aiModel = getStoredModel(aiProvider) || undefined;
-    const aiEndpoint = getStoredEndpoint(aiProvider) || undefined;
+    const aiSettings = buildAiSettings();
 
     const { folderHandle, gitBranch, gitStatus } = await requestRepoContext();
 
@@ -176,11 +223,21 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       gitStatus,
       languages,
       rows,
-      aiApiKey,
-      aiProvider,
-      aiModel,
-      aiEndpoint,
+      ...aiSettings,
     });
+
+    await saveProjectReference({
+      projectName: projectBaseName || file.name,
+      fileName: file.name,
+      languages,
+      rowCount: rows.length,
+      csvFileHandle: fileHandle,
+      folderHandle,
+      gitBranch,
+      gitStatus,
+    });
+
+    await refreshRecentProjects();
 
     toast({
       title: "Source file imported",
@@ -191,50 +248,130 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
     });
   };
 
+  const handleOpenRecentProject = async (project: ProjectReference) => {
+    if (!project.csvFileHandle) {
+      toast({
+        title: "Grant file access",
+        description: "Locax needs permission to reopen this file. Import it again to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const currentPermission = await project.csvFileHandle.queryPermission?.({ mode: "readwrite" });
+      if (currentPermission !== "granted") {
+        const permission = await project.csvFileHandle.requestPermission?.({ mode: "readwrite" });
+        if (permission === "denied") {
+          throw new Error("Locax needs read/write access to that file. Please try again and allow permission.");
+        }
+      }
+
+      const file = await project.csvFileHandle.getFile();
+      const { languages, rows } = await parseSourceFile(file);
+      const aiSettings = buildAiSettings();
+
+      onProjectLoad({
+        folderHandle: project.folderHandle ?? null,
+        csvFileHandle: project.csvFileHandle,
+        projectName: project.projectName,
+        gitBranch: project.gitBranch ?? null,
+        gitStatus: project.gitStatus ?? "unknown",
+        languages,
+        rows,
+        ...aiSettings,
+      });
+
+      await markProjectOpened(project.id);
+      await refreshRecentProjects();
+
+      toast({
+        title: "Project loaded",
+        description: `${rows.length} keys ready to edit.`,
+      });
+    } catch (error) {
+      console.error("Failed to reopen project", error);
+      toast({
+        title: "Could not open project",
+        description:
+          (error as Error).message ||
+          "Locax no longer has access to that file. Remove it from the viewer or import it again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRemoveProject = async (project: ProjectReference) => {
+    try {
+      await removeProjectReference(project.id);
+      await refreshRecentProjects();
+      toast({
+        title: "Removed",
+        description: `${project.projectName} removed from Project Viewer.`,
+      });
+    } catch (error) {
+      console.error("Failed to remove project reference", error);
+      toast({
+        title: "Unable to remove project",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
-    <div className="flex items-center justify-center h-screen bg-background">
-      <div className="text-center space-y-6 max-w-md">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-            <svg className="w-7 h-7 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-              <path d="M2 17l10 5 10-5"/>
-              <path d="M2 12l10 5 10-5"/>
-            </svg>
+    <div className="flex min-h-screen bg-background">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-12">
+        <div className="mx-auto max-w-2xl space-y-6 text-center">
+          <div className="flex items-center justify-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
+              <svg className="h-7 w-7 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <h1 className="text-4xl font-bold">Locax</h1>
           </div>
-          <h1 className="text-4xl font-bold">Locax</h1>
-        </div>
-        
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold">Game Translation Management</h2>
-          <p className="text-muted-foreground">
-            Open your game project folder to start managing localization keys, 
-            translations, and screenshots with AI assistance.
-          </p>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold">Game Translation Management</h2>
+            <p className="text-muted-foreground">
+              Open your game project folder to start managing localization keys, translations, and screenshots with AI
+              assistance.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              size="lg"
+              onClick={handleImportSource}
+              className="gap-2"
+            >
+              <Upload className="h-5 w-5" />
+              Import Source CSV / Excel
+            </Button>
+
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={handleTrySample}
+              className="gap-2"
+            >
+              <Sparkles className="h-5 w-5" />
+              Try Sample Project
+            </Button>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <Button 
-            size="lg" 
-            onClick={handleImportSource}
-            className="gap-2"
-          >
-            <Upload className="w-5 h-5" />
-            Import Source CSV / Excel
-          </Button>
+        <ProjectViewer
+          projects={recentProjects}
+          onOpenProject={handleOpenRecentProject}
+          onRemoveProject={handleRemoveProject}
+          isLoading={isLoadingProjects}
+        />
 
-          <Button 
-            size="lg"
-            variant="outline"
-            onClick={handleTrySample}
-            className="gap-2"
-          >
-            <Sparkles className="w-5 h-5" />
-            Try Sample Project
-          </Button>
-        </div>
-
-        <div className="text-sm text-muted-foreground pt-4">
+        <div className="text-center text-sm text-muted-foreground">
           <p>Import your game's source localization CSV or Excel file to get started.</p>
           <p>All changes can be exported back to the source format.</p>
         </div>
