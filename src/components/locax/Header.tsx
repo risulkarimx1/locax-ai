@@ -59,6 +59,7 @@ export const Header = ({
   onExitProject,
 }: HeaderProps) => {
   const { toast } = useToast();
+  const displayProjectName = projectState.folderHandle?.name ?? projectState.projectName;
   const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -416,7 +417,7 @@ export const Header = ({
 
           <div className="h-6 w-px bg-border" />
 
-          <span className="text-sm text-muted-foreground">{projectState.projectName}</span>
+          <span className="text-sm text-muted-foreground">{displayProjectName}</span>
 
           {projectState.gitStatus === "found" && projectState.gitBranch && (
             <div className="flex items-center gap-2 rounded-full border border-border/80 px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/50 dark:bg-white/5">

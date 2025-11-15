@@ -204,8 +204,6 @@ const Index = () => {
       <StatusBar
         autoStatus={autoSyncStatus}
         manualStatus={manualSaveStatus}
-        gitStatus={projectState.gitStatus ?? "unknown"}
-        gitBranch={projectState.gitBranch}
       />
     </div>
   );
