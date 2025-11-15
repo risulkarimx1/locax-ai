@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Globe, Zap, GitCommit, Save, Plus, Trash2, Download, Upload, Menu } from "lucide-react";
+import { Search, Globe, Zap, GitCommit, Save, Plus, Trash2, Download, Upload, Menu, Home } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
 import type { ProjectState, AIProvider } from "@/types/locax";
 import { useEffect, useMemo, useState } from "react";
@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { exportSourceCSV } from "@/lib/file-system";
 import { DEFAULT_AI_PROVIDER, getStoredApiKey, getStoredEndpoint, getStoredModel, persistAiSettings } from "@/lib/ai-config";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface HeaderProps {
   projectState: ProjectState;
@@ -42,6 +43,7 @@ interface HeaderProps {
   onManualSave: () => void;
   manualSaveDisabled: boolean;
   isManualSaving: boolean;
+  onExitProject: () => void;
 }
 
 export const Header = ({ 
@@ -54,6 +56,7 @@ export const Header = ({
   onManualSave,
   manualSaveDisabled,
   isManualSaving,
+  onExitProject,
 }: HeaderProps) => {
   const { toast } = useToast();
   const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
@@ -356,18 +359,28 @@ export const Header = ({
     <>
       <header className="flex items-center justify-between h-14 px-4 border-b bg-panel shrink-0">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <svg className="w-5 h-5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                <path d="M2 17l10 5 10-5"/>
-                <path d="M2 12l10 5 10-5"/>
-              </svg>
-            </div>
-            <span className="font-bold text-lg">Locax</span>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+            <svg className="w-5 h-5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+              <path d="M2 17l10 5 10-5"/>
+              <path d="M2 12l10 5 10-5"/>
+            </svg>
           </div>
+          <span className="font-bold text-lg">Locax</span>
+        </div>
 
-          <DropdownMenu>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-2"
+          onClick={onExitProject}
+        >
+          <Home className="w-4 h-4" />
+          Home
+        </Button>
+
+        <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm">
                 <Menu className="w-4 h-4 mr-2" />
@@ -482,6 +495,8 @@ export const Header = ({
               "Connect AI"
             )}
           </Button>
+
+          <ThemeToggle />
         </div>
       </header>
 

@@ -8,6 +8,7 @@ import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport } from "@/lib/file-system";
 import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint } from "@/lib/ai-config";
 import { ProjectViewer } from "@/components/locax/ProjectViewer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   getProjectReferences,
   markProjectOpened,
@@ -299,43 +300,47 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#050512] text-white">
-      <aside className="hidden w-64 flex-col border-r border-white/10 bg-[#09091f] p-6 md:flex">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#6c63ff] text-xl font-black">L</div>
-          <div>
-            <p className="text-lg font-semibold">Locax</p>
-            <p className="text-xs text-white/60">Localization Suite</p>
+    <div className="flex min-h-screen bg-background text-foreground">
+      <aside className="hidden w-72 flex-col border-r border-border/70 bg-panel p-6 md:flex">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-xl font-black text-primary-foreground">
+              L
+            </div>
+            <div>
+              <p className="text-lg font-semibold">Locax</p>
+              <p className="text-xs text-muted-foreground">Localization Suite</p>
+            </div>
           </div>
+          <ThemeToggle />
         </div>
 
-        <nav className="mt-10 space-y-1 text-sm font-medium">
+        <nav className="mt-10 space-y-1 text-sm font-medium text-muted-foreground">
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-xl bg-white/10 px-4 py-2 text-white"
+            className="flex w-full items-center gap-3 rounded-2xl bg-primary/10 px-4 py-2 text-primary"
           >
             <FolderClosed className="h-4 w-4" />
             Projects
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-2 text-white/60 transition hover:bg-white/5 hover:text-white"
+            className="flex w-full items-center gap-3 rounded-2xl px-4 py-2 transition hover:bg-panel-hover hover:text-foreground"
           >
             <Settings className="h-4 w-4" />
             Settings
           </button>
         </nav>
 
-        <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
-          <p className="text-sm font-semibold text-white">Need a reminder?</p>
+        <div className="mt-auto rounded-2xl border border-border/70 bg-panel-hover p-4 text-xs text-muted-foreground">
+          <p className="text-sm font-semibold text-foreground">Need a reminder?</p>
           <p className="mt-1">
-            Import a CSV or Excel localization file to populate the project viewer. Locax remembers them for easy
-            reopen.
+            Import a CSV or Excel localization file to populate the project viewer. Locax remembers them for easy reopen.
           </p>
           <Button
             size="sm"
             onClick={handleImportSource}
-            className="mt-4 w-full gap-2 rounded-xl bg-[#6c63ff] text-white hover:bg-[#5b52f3]"
+            className="mt-4 w-full gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Upload className="h-4 w-4" />
             Import file

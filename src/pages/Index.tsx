@@ -118,6 +118,12 @@ const Index = () => {
 
   const selectedRow = filteredRows.find(row => row.key === selectedKey);
 
+  const handleExitToHome = () => {
+    setProjectState(null);
+    setSelectedKey(null);
+    setSearchQuery("");
+  };
+
   if (!projectState) {
     return <WelcomeScreen onProjectLoad={setProjectState} />;
   }
@@ -134,6 +140,7 @@ const Index = () => {
         onManualSave={handleManualSave}
         manualSaveDisabled={!projectState.csvFileHandle || manualSaveStatus === "saving"}
         isManualSaving={manualSaveStatus === "saving"}
+        onExitProject={handleExitToHome}
       />
       
       <div className="relative flex flex-1 overflow-hidden">
