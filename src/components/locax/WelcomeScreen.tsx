@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Upload } from "lucide-react";
+import { FolderClosed, Settings, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ProjectState, GitStatus } from "@/types/locax";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
-import { checkFileSystemSupport, getSampleData } from "@/lib/file-system";
+import { checkFileSystemSupport } from "@/lib/file-system";
 import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint } from "@/lib/ai-config";
 import { ProjectViewer } from "@/components/locax/ProjectViewer";
 import {
@@ -98,27 +98,6 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       setIsLoadingProjects(false);
     }
   }, []);
-
-  const handleTrySample = () => {
-    const { languages, rows } = getSampleData();
-    const aiSettings = buildAiSettings();
-
-    onProjectLoad({
-      folderHandle: null,
-      csvFileHandle: null,
-      projectName: "sample-game-project",
-      gitBranch: "main",
-      gitStatus: "found",
-      languages,
-      rows,
-      ...aiSettings,
-    });
-
-    toast({
-      title: "Sample project loaded",
-      description: "Exploring with demo data. Changes won't be saved.",
-    });
-  };
 
   const requestRepoContext = async (): Promise<{
     folderHandle: FileSystemDirectoryHandle | null;
@@ -320,61 +299,58 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-12">
-        <div className="mx-auto max-w-2xl space-y-6 text-center">
-          <div className="flex items-center justify-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <svg className="h-7 w-7 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            </div>
-            <h1 className="text-4xl font-bold">Locax</h1>
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="text-2xl font-semibold">Game Translation Management</h2>
-            <p className="text-muted-foreground">
-              Open your game project folder to start managing localization keys, translations, and screenshots with AI
-              assistance.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <Button
-              size="lg"
-              onClick={handleImportSource}
-              className="gap-2"
-            >
-              <Upload className="h-5 w-5" />
-              Import Source CSV / Excel
-            </Button>
-
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={handleTrySample}
-              className="gap-2"
-            >
-              <Sparkles className="h-5 w-5" />
-              Try Sample Project
-            </Button>
+    <div className="flex min-h-screen bg-[#050512] text-white">
+      <aside className="hidden w-64 flex-col border-r border-white/10 bg-[#09091f] p-6 md:flex">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#6c63ff] text-xl font-black">L</div>
+          <div>
+            <p className="text-lg font-semibold">Locax</p>
+            <p className="text-xs text-white/60">Localization Suite</p>
           </div>
         </div>
 
+        <nav className="mt-10 space-y-1 text-sm font-medium">
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-xl bg-white/10 px-4 py-2 text-white"
+          >
+            <FolderClosed className="h-4 w-4" />
+            Projects
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-xl px-4 py-2 text-white/60 transition hover:bg-white/5 hover:text-white"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
+        </nav>
+
+        <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
+          <p className="text-sm font-semibold text-white">Need a reminder?</p>
+          <p className="mt-1">
+            Import a CSV or Excel localization file to populate the project viewer. Locax remembers them for easy
+            reopen.
+          </p>
+          <Button
+            size="sm"
+            onClick={handleImportSource}
+            className="mt-4 w-full gap-2 rounded-xl bg-[#6c63ff] text-white hover:bg-[#5b52f3]"
+          >
+            <Upload className="h-4 w-4" />
+            Import file
+          </Button>
+        </div>
+      </aside>
+
+      <div className="flex-1">
         <ProjectViewer
           projects={recentProjects}
           onOpenProject={handleOpenRecentProject}
           onRemoveProject={handleRemoveProject}
+          onCreateProject={handleImportSource}
           isLoading={isLoadingProjects}
         />
-
-        <div className="text-center text-sm text-muted-foreground">
-          <p>Import your game's source localization CSV or Excel file to get started.</p>
-          <p>All changes can be exported back to the source format.</p>
-        </div>
       </div>
     </div>
   );
