@@ -1,0 +1,47 @@
+appId: com.silverbackapps.locax
+productName: Locax
+artifactName: "Locax-${version}-${os}-${arch}.${ext}"
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - node_modules/**/*
+  - !src
+  - !public
+  - !README.md
+  - !**/*.ts
+  - !**/*.tsx
+  - !tailwind.config.ts
+  - !tsconfig.json
+  - !tsconfig.*.json
+asar: true
+directories:
+  output: release/${os}
+  buildResources: electron/build
+extraMetadata:
+  main: electron/main.cjs
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/build/entitlements.mac.plist
+  entitlementsInherit: electron/build/entitlements.mac.plist
+dmg:
+  sign: false
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+linux:
+  category: Utility
+  target:
+    - AppImage
+    - deb
+publish: null

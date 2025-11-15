@@ -84,6 +84,22 @@ This project is built with:
 - Tailwind CSS
 - shadcn/ui components
 
+## Desktop Packaging
+
+Locax ships as a desktop app via Electron. To create installers that run on both macOS and Windows:
+
+1. Install dependencies (first run may require network access):
+   ```bash
+   npm install
+   ```
+2. Build the renderer + package with Electron Builder:
+   - macOS: `npm run dist:mac` (creates `release/mac/Locax-<version>.dmg` and `.zip`).
+   - Windows: `npm run dist:win` (produces an `.exe` installer inside `release/win`).
+   - Linux (optional): `npm run dist:linux` for AppImage/Deb output.
+3. Share the generated installers directly or upload them to your release channel. Signing/notarization credentials can be configured via standard Electron Builder options (see `electron-builder.yml`).
+
+During development you can still run `npm run dev:desktop` for live reload with Electron.
+
 ## Project Links
 
 **URL**: https://lovable.dev/projects/5d5fadcd-3d16-4817-bc0d-db770a2b82d9
