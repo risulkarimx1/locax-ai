@@ -64,6 +64,47 @@ const Index = () => {
     }
   }, [selectedKey]);
 
+  const handleManualSave = async () => {
+    if (!projectState?.csvFileHandle) {
+      toast({
+        title: "Manual save unavailable",
+        description: "Reimport the CSV/Excel file using a supported browser to enable saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setManualSaveStatus("saving");
+      const permission = await projectState.csvFileHandle.requestPermission?.({ mode: "readwrite" });
+      if (permission === "denied") {
+        throw new Error("Permission denied for writing to the source file.");
+      }
+
+      const tempContent = (await readTempLocalizationFile()) ?? undefined;
+      await writeCSVToFile(
+        projectState.csvFileHandle,
+        projectState.languages,
+        projectState.rows,
+        tempContent
+      );
+      setLastSaved(new Date());
+      setManualSaveStatus("idle");
+      toast({
+        title: "Saved",
+        description: "Changes written to the original file.",
+      });
+    } catch (error) {
+      setManualSaveStatus("error");
+      toast({
+        title: "Save failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+      setTimeout(() => setManualSaveStatus("idle"), 2500);
+    }
+  };
+
   const filteredRows = projectState?.rows.filter(row => {
     const searchLower = searchQuery.toLowerCase();
     return (
@@ -164,43 +205,3 @@ const Index = () => {
 };
 
 export default Index;
-  const handleManualSave = async () => {
-    if (!projectState?.csvFileHandle) {
-      toast({
-        title: "Manual save unavailable",
-        description: "Reimport the CSV/Excel file using a supported browser to enable saving.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      setManualSaveStatus("saving");
-      const permission = await projectState.csvFileHandle.requestPermission?.({ mode: "readwrite" });
-      if (permission === "denied") {
-        throw new Error("Permission denied for writing to the source file.");
-      }
-
-      const tempContent = (await readTempLocalizationFile()) ?? undefined;
-      await writeCSVToFile(
-        projectState.csvFileHandle,
-        projectState.languages,
-        projectState.rows,
-        tempContent
-      );
-      setLastSaved(new Date());
-      setManualSaveStatus("idle");
-      toast({
-        title: "Saved",
-        description: "Changes written to the original file.",
-      });
-    } catch (error) {
-      setManualSaveStatus("error");
-      toast({
-        title: "Save failed",
-        description: (error as Error).message,
-        variant: "destructive",
-      });
-      setTimeout(() => setManualSaveStatus("idle"), 2500);
-    }
-  };
