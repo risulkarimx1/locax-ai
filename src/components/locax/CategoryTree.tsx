@@ -157,7 +157,7 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
                         onClick={() => onSelectKey(row.key)}
                         className={cn(
                           "w-full text-left px-2 py-1.5 text-sm rounded hover:bg-panel-hover",
-                          selectedKey === row.key && "bg-primary/10 text-primary font-medium"
+                          selectedKey === row.key && "bg-primary/10 text-primary font-semibold shadow-[0_0_0_1px_rgba(59,130,246,0.35)]"
                         )}
                       >
                         {keyName}
@@ -179,7 +179,7 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
                     onClick={() => onSelectKey(row.key)}
                     className={cn(
                       "w-full text-left px-2 py-1.5 text-sm rounded hover:bg-panel-hover",
-                      selectedKey === row.key && "bg-primary/10 text-primary font-medium"
+                      selectedKey === row.key && "bg-primary/10 text-primary font-semibold shadow-[0_0_0_1px_rgba(59,130,246,0.35)]"
                     )}
                   >
                     {row.key}

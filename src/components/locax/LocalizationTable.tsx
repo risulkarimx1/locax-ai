@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/locax/EmptyState";
 import type { LocalizationRow } from "@/types/locax";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,15 @@ export const LocalizationTable = ({
   const [editingCell, setEditingCell] = useState<{ key: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => createInitialWidths(languages));
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+
+  useEffect(() => {
+    if (!selectedKey) return;
+    const rowEl = rowRefs.current[selectedKey];
+    if (rowEl) {
+      rowEl.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [selectedKey, rows]);
 
   useEffect(() => {
     setColumnWidths(prev => normalizeWidths(prev, languages));
@@ -96,16 +106,29 @@ export const LocalizationTable = ({
     if (!editingCell) return;
 
     const { key, field } = editingCell;
-    
-    if (field === 'context') {
+    const row = rows.find(r => r.key === key);
+    if (!row) {
+      setEditingCell(null);
+      setEditValue("");
+      return;
+    }
+
+    if (field === 'key') {
+      const trimmedKey = editValue.trim();
+      if (!trimmedKey || trimmedKey === key) {
+        setEditingCell(null);
+        setEditValue("");
+        return;
+      }
+
+      onUpdateRow(key, { key: trimmedKey });
+      onSelectKey(trimmedKey);
+    } else if (field === 'context') {
       onUpdateRow(key, { context: editValue });
     } else {
-      const row = rows.find(r => r.key === key);
-      if (row) {
-        onUpdateRow(key, {
-          translations: { ...row.translations, [field]: editValue }
-        });
-      }
+      onUpdateRow(key, {
+        translations: { ...row.translations, [field]: editValue }
+      });
     }
 
     setEditingCell(null);
@@ -186,16 +209,44 @@ export const LocalizationTable = ({
               <tr
                 key={row.key}
                 onClick={() => onSelectKey(row.key)}
+                ref={(el) => {
+                  if (el) {
+                    rowRefs.current[row.key] = el;
+                  } else {
+                    delete rowRefs.current[row.key];
+                  }
+                }}
                 className={cn(
                   "border-b hover:bg-panel-hover cursor-pointer transition-colors",
-                  isSelected && "bg-primary/5"
+                  isSelected && "bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] ring-1 ring-primary/50"
                 )}
               >
                 <td className="px-4 py-3 text-sm font-mono">
                   <div className={cn(
                     isSelected ? "whitespace-normal" : "whitespace-nowrap overflow-hidden text-ellipsis"
                   )}>
-                    {keyName}
+                    {editingCell?.key === row.key && editingCell.field === 'key' ? (
+                      <Input
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={handleKeyDown}
+                        autoFocus
+                        className="h-8"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left w-full"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          startEditing(row.key, 'key', row.key);
+                        }}
+                      >
+                        {keyName}
+                      </button>
+                    )}
                   </div>
                 </td>
                 <td 
