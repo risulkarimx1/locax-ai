@@ -28,6 +28,7 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyEnglish, setNewKeyEnglish] = useState("");
+  const [newKeyDescription, setNewKeyDescription] = useState("");
   const [newKeyContext, setNewKeyContext] = useState("");
 
   const { categorized, uncategorized } = useMemo(() => {
@@ -87,8 +88,8 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
     const newRow: LocalizationRow = {
       key: fullKey,
       type: "Text",
-      description: newKeyContext,
-      context: newKeyContext,
+      description: newKeyDescription.trim(),
+      context: newKeyContext.trim(),
       translations: { en: trimmedEnglish },
     };
 
@@ -96,6 +97,7 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
     setAddKeyDialogOpen(false);
     setNewKeyName("");
     setNewKeyEnglish("");
+    setNewKeyDescription("");
     setNewKeyContext("");
     onSelectKey(fullKey);
   };
@@ -251,10 +253,20 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="context">Context</Label>
+              <Label htmlFor="description">Description (optional)</Label>
+              <Textarea
+                id="description"
+                placeholder="e.g., Main menu start button"
+                value={newKeyDescription}
+                onChange={(e) => setNewKeyDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="context">Context (optional)</Label>
               <Textarea
                 id="context"
-                placeholder="e.g., Main menu start button"
+                placeholder="e.g., Describe usage for translators"
                 value={newKeyContext}
                 onChange={(e) => setNewKeyContext(e.target.value)}
                 rows={3}
