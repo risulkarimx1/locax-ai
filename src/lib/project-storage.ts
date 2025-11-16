@@ -1,4 +1,4 @@
-import type { GitStatus } from "@/types/locax";
+import type { GitStatus, SourceFileType } from "@/types/locax";
 
 const DB_NAME = "locax-project-history";
 const STORE_NAME = "projects";
@@ -12,7 +12,10 @@ export interface ProjectReference {
   languages: string[];
   rowCount: number;
   lastOpened: number;
-  csvFileHandle: FileSystemFileHandle | null;
+  sourceFileHandle: FileSystemFileHandle | null;
+  metaFileHandle: FileSystemFileHandle | null;
+  sourceFileType: SourceFileType;
+  metaExists: boolean;
   folderHandle: FileSystemDirectoryHandle | null;
   gitBranch: string | null;
   gitStatus: GitStatus;
@@ -23,10 +26,40 @@ export interface SaveProjectReferenceInput {
   fileName: string;
   languages: string[];
   rowCount: number;
-  csvFileHandle: FileSystemFileHandle | null;
+  sourceFileHandle: FileSystemFileHandle | null;
+  metaFileHandle?: FileSystemFileHandle | null;
+  sourceFileType?: SourceFileType;
+  metaExists?: boolean;
   folderHandle?: FileSystemDirectoryHandle | null;
   gitBranch?: string | null;
   gitStatus?: GitStatus;
+}
+
+type StoredProjectReference = Partial<ProjectReference> & {
+  csvFileHandle?: FileSystemFileHandle | null;
+};
+
+function normalizeReference(entry: StoredProjectReference): ProjectReference {
+  return {
+    id: entry.id ?? createId(),
+    projectName: entry.projectName ?? "Untitled Project",
+    fileName: entry.fileName ?? "Localization",
+    languages: Array.isArray(entry.languages) ? entry.languages : [],
+    rowCount: typeof entry.rowCount === "number" ? entry.rowCount : 0,
+    lastOpened: typeof entry.lastOpened === "number" ? entry.lastOpened : Date.now(),
+    sourceFileHandle: entry.sourceFileHandle ?? entry.csvFileHandle ?? null,
+    metaFileHandle: entry.metaFileHandle ?? null,
+    sourceFileType: entry.sourceFileType ?? "csv",
+    metaExists: entry.metaExists ?? Boolean(entry.metaFileHandle),
+    folderHandle: entry.folderHandle ?? null,
+    gitBranch: entry.gitBranch ?? null,
+    gitStatus: entry.gitStatus ?? "unknown",
+  };
+}
+
+function stripHandles(entry: ProjectReference): Omit<ProjectReference, "sourceFileHandle" | "metaFileHandle" | "folderHandle"> {
+  const { sourceFileHandle: _source, metaFileHandle: _meta, folderHandle: _folder, ...rest } = entry;
+  return rest;
 }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
@@ -103,12 +136,15 @@ function readFallbackEntries(): ProjectReference[] {
       return [];
     }
 
-    const parsed = JSON.parse(stored) as Array<Omit<ProjectReference, "csvFileHandle" | "folderHandle">>;
-    return parsed.map(entry => ({
-      ...entry,
-      csvFileHandle: null,
-      folderHandle: null,
-    }));
+    const parsed = JSON.parse(stored) as Array<Omit<ProjectReference, "sourceFileHandle" | "metaFileHandle" | "folderHandle">>;
+    return parsed.map(entry =>
+      normalizeReference({
+        ...entry,
+        sourceFileHandle: null,
+        metaFileHandle: null,
+        folderHandle: null,
+      })
+    );
   } catch (error) {
     console.error("Failed to read project history fallback", error);
     return [];
@@ -122,7 +158,7 @@ function writeFallbackEntries(entries: ProjectReference[]): void {
   }
 
   try {
-    const serialized = entries.map(({ csvFileHandle: _csv, folderHandle: _folder, ...rest }) => rest);
+    const serialized = entries.map(stripHandles);
     storage.setItem(FALLBACK_STORAGE_KEY, JSON.stringify(serialized));
   } catch (error) {
     console.error("Failed to persist project history fallback", error);
@@ -141,7 +177,8 @@ async function fetchAllEntries(): Promise<ProjectReference[]> {
     const request = store.getAll();
 
     request.onsuccess = () => {
-      resolve((request.result as ProjectReference[]) ?? []);
+      const raw = (request.result as StoredProjectReference[] | undefined) ?? [];
+      resolve(raw.map(normalizeReference));
     };
 
     request.onerror = () => {
@@ -157,11 +194,7 @@ async function persistEntry(entry: ProjectReference): Promise<void> {
   const db = await getDb();
   if (!db) {
     const entries = readFallbackEntries().filter(item => item.id !== entry.id);
-    entries.push({
-      ...entry,
-      csvFileHandle: null,
-      folderHandle: null,
-    });
+    entries.push(normalizeReference(stripHandles(entry)));
     writeFallbackEntries(entries);
     return;
   }
@@ -174,11 +207,7 @@ async function persistEntry(entry: ProjectReference): Promise<void> {
   }).catch(error => {
     console.error("Failed to save project reference", error);
     const entries = readFallbackEntries().filter(item => item.id !== entry.id);
-    entries.push({
-      ...entry,
-      csvFileHandle: null,
-      folderHandle: null,
-    });
+    entries.push(normalizeReference(stripHandles(entry)));
     writeFallbackEntries(entries);
   });
 }
@@ -229,12 +258,12 @@ async function findEntryByHandle(fileHandle: FileSystemFileHandle | null): Promi
 
   const entries = await fetchAllEntries();
   for (const entry of entries) {
-    if (!entry.csvFileHandle) {
+    if (!entry.sourceFileHandle) {
       continue;
     }
 
     try {
-      const isSame = await entry.csvFileHandle.isSameEntry(fileHandle);
+      const isSame = await entry.sourceFileHandle.isSameEntry(fileHandle);
       if (isSame) {
         return entry;
       }
@@ -253,7 +282,7 @@ export async function getProjectReferences(): Promise<ProjectReference[]> {
 
 export async function saveProjectReference(input: SaveProjectReferenceInput): Promise<ProjectReference | null> {
   try {
-    const existing = await findEntryByHandle(input.csvFileHandle ?? null);
+    const existing = await findEntryByHandle(input.sourceFileHandle ?? null);
     const now = Date.now();
 
     const entry: ProjectReference = existing
@@ -266,7 +295,11 @@ export async function saveProjectReference(input: SaveProjectReferenceInput): Pr
           lastOpened: now,
           gitBranch: input.gitBranch ?? existing.gitBranch ?? null,
           gitStatus: input.gitStatus ?? existing.gitStatus,
-          csvFileHandle: input.csvFileHandle ?? existing.csvFileHandle,
+          sourceFileHandle: input.sourceFileHandle ?? existing.sourceFileHandle,
+          metaFileHandle:
+            input.metaFileHandle === undefined ? existing.metaFileHandle : input.metaFileHandle ?? null,
+          sourceFileType: input.sourceFileType ?? existing.sourceFileType ?? "csv",
+          metaExists: input.metaExists ?? existing.metaExists ?? false,
           folderHandle:
             input.folderHandle === undefined ? existing.folderHandle : input.folderHandle ?? null,
         }
@@ -277,7 +310,10 @@ export async function saveProjectReference(input: SaveProjectReferenceInput): Pr
           languages: input.languages,
           rowCount: input.rowCount,
           lastOpened: now,
-          csvFileHandle: input.csvFileHandle,
+          sourceFileHandle: input.sourceFileHandle,
+          metaFileHandle: input.metaFileHandle ?? null,
+          sourceFileType: input.sourceFileType ?? "csv",
+          metaExists: input.metaExists ?? Boolean(input.metaFileHandle),
           folderHandle: input.folderHandle ?? null,
           gitBranch: input.gitBranch ?? null,
           gitStatus: input.gitStatus ?? "unknown",

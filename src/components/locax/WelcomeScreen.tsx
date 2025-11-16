@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FolderClosed, Settings, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ProjectState, GitStatus } from "@/types/locax";
+import type { ProjectState, GitStatus, LocalizationRow, ColumnMetadata } from "@/types/locax";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { detectGitBranch } from "@/lib/git-utils";
 import { checkFileSystemSupport } from "@/lib/file-system";
+import { createBlankWorkbookBuffer } from "@/lib/source-writer";
 import { getStoredAiProvider, getStoredApiKey, getStoredModel, getStoredEndpoint } from "@/lib/ai-config";
 import { ProjectViewer } from "@/components/locax/ProjectViewer";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -16,6 +20,7 @@ import {
   saveProjectReference,
   type ProjectReference,
 } from "@/lib/project-storage";
+import { loadMetaData, type MetaEntry } from "@/lib/meta-file";
 
 interface WelcomeScreenProps {
   onProjectLoad: (state: ProjectState) => void;
@@ -37,6 +42,55 @@ interface DirectoryPickerOptions {
 
 type DirectoryPicker = (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
 type OpenFilePicker = (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandle[]>;
+type SaveFilePicker = (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
+
+const DEFAULT_PROJECT_LANGUAGES = ["en", "de", "fr", "es", "ja", "ko"] as const;
+const DEFAULT_LANGUAGE_HEADERS: Record<string, string> = {
+  en: "English",
+  de: "Deutsch [de]",
+  fr: "Français [fr]",
+  es: "Español [es]",
+  ja: "日本語 [ja]",
+  ko: "한국어 [ko]",
+};
+const defaultLanguageSummary = DEFAULT_PROJECT_LANGUAGES.map(
+  code => `${DEFAULT_LANGUAGE_HEADERS[code] ?? code.toUpperCase()} (${code})`
+).join(", ");
+
+const mergeRowsWithMeta = (rows: LocalizationRow[], metaByKey: Record<string, MetaEntry>): LocalizationRow[] => {
+  const sourceKeys = new Set(rows.map(row => row.key));
+  Object.keys(metaByKey).forEach(key => {
+    if (!sourceKeys.has(key)) {
+      console.warn(`Meta entry for "${key}" does not exist in the source file.`);
+    }
+  });
+
+  return rows.map(row => {
+    const entry = metaByKey[row.key];
+    if (!entry) {
+      const fallback = row.description ?? row.context ?? "";
+      return {
+        ...row,
+        description: fallback,
+        context: row.context ?? fallback,
+      };
+    }
+
+    const linkedKeys = entry.linkedKeys?.length ? [...entry.linkedKeys] : row.linkedKeys;
+    const screenshot = entry.screenshot !== undefined ? entry.screenshot : row.screenshot;
+    const notes = entry.notes !== undefined ? entry.notes : row.notes;
+    const context = entry.context ?? row.context ?? row.description ?? "";
+
+    return {
+      ...row,
+      description: row.description ?? row.context ?? context,
+      context,
+      screenshot,
+      linkedKeys,
+      notes,
+    };
+  });
+};
 
 const getDirectoryPicker = (): DirectoryPicker | undefined => {
   if (typeof window === "undefined") return undefined;
@@ -46,6 +100,11 @@ const getDirectoryPicker = (): DirectoryPicker | undefined => {
 const getFilePicker = (): OpenFilePicker | undefined => {
   if (typeof window === "undefined") return undefined;
   return (window as typeof window & { showOpenFilePicker?: OpenFilePicker }).showOpenFilePicker;
+};
+
+const getSaveFilePicker = (): SaveFilePicker | undefined => {
+  if (typeof window === "undefined") return undefined;
+  return (window as typeof window & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
 };
 
 const buildAiSettings = () => {
@@ -58,11 +117,22 @@ const buildAiSettings = () => {
   };
 };
 
+const sanitizeProjectSlug = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]/g, "_") || "Localization";
+
+const buildDefaultLanguageColumnMap = (): Record<string, ColumnMetadata> =>
+  DEFAULT_PROJECT_LANGUAGES.reduce<Record<string, ColumnMetadata>>((acc, code, index) => {
+    acc[code] = { index, header: DEFAULT_LANGUAGE_HEADERS[code] ?? code.toUpperCase() };
+    return acc;
+  }, {});
+
 export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   const { toast } = useToast();
   const hasFileSystemSupport = checkFileSystemSupport();
   const [recentProjects, setRecentProjects] = useState<ProjectReference[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("Localization");
+  const [creatingProject, setCreatingProject] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -118,8 +188,10 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
 
       const folderHandle = await showDirectoryPicker({
         id: "locax-project-folder",
-        mode: "read",
+        mode: "readwrite",
       });
+
+      await folderHandle.requestPermission?.({ mode: "readwrite" });
 
       const gitBranch = await detectGitBranch(folderHandle);
 
@@ -189,29 +261,51 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
   };
 
   const importProjectFromFile = async (file: File, fileHandle: FileSystemFileHandle | null) => {
-    const { languages, rows } = await parseSourceFile(file);
+    const parsed = await parseSourceFile(file);
     const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, "");
     const aiSettings = buildAiSettings();
 
     const { folderHandle, gitBranch, gitStatus } = await requestRepoContext();
 
+    const metaResult = await loadMetaData({
+      folderHandle,
+      rows: parsed.rows,
+    });
+
+    const mergedRows = mergeRowsWithMeta(parsed.rows, metaResult.metaByKey);
+
     onProjectLoad({
       folderHandle,
-      csvFileHandle: fileHandle,
+      sourceFileHandle: fileHandle,
+      metaFileHandle: metaResult.metaFileHandle,
+      sourceFileType: parsed.sourceFileType,
+      metaExists: metaResult.metaExists,
+      sourceDirty: false,
+      metaDirty: false,
       projectName: projectBaseName || file.name,
       gitBranch,
       gitStatus,
-      languages,
-      rows,
+      languages: parsed.languages,
+      rows: mergedRows,
+      workbookRowMap: parsed.workbookRowMap,
+      languageColumnMap: parsed.languageColumnMap,
+      sourceHeaders: parsed.header,
+      descColumn: parsed.descColumn,
+      typeColumn: parsed.typeColumn,
+      sourceLastModified: file.lastModified,
+      metaLastModified: metaResult.lastModified,
       ...aiSettings,
     });
 
     await saveProjectReference({
       projectName: projectBaseName || file.name,
       fileName: file.name,
-      languages,
-      rowCount: rows.length,
-      csvFileHandle: fileHandle,
+      languages: parsed.languages,
+      rowCount: mergedRows.length,
+      sourceFileHandle: fileHandle,
+      metaFileHandle: metaResult.metaFileHandle,
+      sourceFileType: parsed.sourceFileType,
+      metaExists: metaResult.metaExists,
       folderHandle,
       gitBranch,
       gitStatus,
@@ -223,13 +317,76 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       title: "Source file imported",
       description:
         gitStatus === "found" && gitBranch
-          ? `Loaded ${rows.length} keys (branch: ${gitBranch}).`
-          : `Loaded ${rows.length} keys. Use File > Export to save changes.`,
+          ? `Loaded ${mergedRows.length} keys (branch: ${gitBranch}).`
+          : `Loaded ${mergedRows.length} keys. Use File > Export to save changes.`,
     });
   };
 
+  const handleStartCreateProject = () => {
+    setNewProjectName("Localization");
+    setCreateProjectDialogOpen(true);
+  };
+
+  const handleCreateProjectDialogChange = (open: boolean) => {
+    if (!open) {
+      setCreatingProject(false);
+    }
+    setCreateProjectDialogOpen(open);
+  };
+
+  const handleCreateProject = async () => {
+    const showSaveFilePicker = getSaveFilePicker();
+    if (!showSaveFilePicker) {
+      toast({
+        title: "Save picker unavailable",
+        description: "Use a Chromium-based browser to create a new workbook from Locax.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCreatingProject(true);
+      const safeName = sanitizeProjectSlug(newProjectName);
+      const fileHandle = await showSaveFilePicker({
+        suggestedName: `${safeName}.xlsx`,
+        types: [
+          {
+            description: "Excel Workbook",
+            accept: {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+            },
+          },
+        ],
+      });
+
+      await fileHandle.requestPermission?.({ mode: "readwrite" });
+
+      const writable = await fileHandle.createWritable();
+      const buffer = createBlankWorkbookBuffer(Array.from(DEFAULT_PROJECT_LANGUAGES), buildDefaultLanguageColumnMap());
+      await writable.write(buffer);
+      await writable.close();
+
+      const file = await fileHandle.getFile();
+      await importProjectFromFile(file, fileHandle);
+      setCreateProjectDialogOpen(false);
+      setNewProjectName("Localization");
+    } catch (error) {
+      if ((error as DOMException)?.name === "AbortError") {
+        return;
+      }
+      toast({
+        title: "Project creation failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const handleOpenRecentProject = async (project: ProjectReference) => {
-    if (!project.csvFileHandle) {
+    if (!project.sourceFileHandle) {
       toast({
         title: "Grant file access",
         description: "Locax needs permission to reopen this file. Import it again to continue.",
@@ -239,26 +396,46 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
     }
 
     try {
-      const currentPermission = await project.csvFileHandle.queryPermission?.({ mode: "readwrite" });
+      const currentPermission = await project.sourceFileHandle.queryPermission?.({ mode: "readwrite" });
       if (currentPermission !== "granted") {
-        const permission = await project.csvFileHandle.requestPermission?.({ mode: "readwrite" });
+        const permission = await project.sourceFileHandle.requestPermission?.({ mode: "readwrite" });
         if (permission === "denied") {
           throw new Error("Locax needs read/write access to that file. Please try again and allow permission.");
         }
       }
 
-      const file = await project.csvFileHandle.getFile();
-      const { languages, rows } = await parseSourceFile(file);
+      const file = await project.sourceFileHandle.getFile();
+      const parsed = await parseSourceFile(file);
       const aiSettings = buildAiSettings();
 
-      onProjectLoad({
+      const metaResult = await loadMetaData({
         folderHandle: project.folderHandle ?? null,
-        csvFileHandle: project.csvFileHandle,
-        projectName: project.projectName,
-        gitBranch: project.gitBranch ?? null,
-        gitStatus: project.gitStatus ?? "unknown",
-        languages,
-        rows,
+        existingHandle: project.metaFileHandle ?? null,
+        rows: parsed.rows,
+      });
+
+      const mergedRows = mergeRowsWithMeta(parsed.rows, metaResult.metaByKey);
+
+    onProjectLoad({
+      folderHandle: project.folderHandle ?? null,
+      sourceFileHandle: project.sourceFileHandle,
+      metaFileHandle: metaResult.metaFileHandle ?? project.metaFileHandle ?? null,
+      sourceFileType: project.sourceFileType ?? parsed.sourceFileType,
+      metaExists: metaResult.metaExists ?? project.metaExists ?? false,
+      sourceDirty: false,
+      metaDirty: false,
+      projectName: project.projectName,
+      gitBranch: project.gitBranch ?? null,
+      gitStatus: project.gitStatus ?? "unknown",
+        languages: parsed.languages,
+        rows: mergedRows,
+        workbookRowMap: parsed.workbookRowMap,
+        languageColumnMap: parsed.languageColumnMap,
+        sourceHeaders: parsed.header,
+        descColumn: parsed.descColumn,
+        typeColumn: parsed.typeColumn,
+        sourceLastModified: file.lastModified,
+        metaLastModified: metaResult.lastModified,
         ...aiSettings,
       });
 
@@ -267,7 +444,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
 
       toast({
         title: "Project loaded",
-        description: `${rows.length} keys ready to edit.`,
+        description: `${mergedRows.length} keys ready to edit.`,
       });
     } catch (error) {
       console.error("Failed to reopen project", error);
@@ -353,10 +530,44 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
           projects={recentProjects}
           onOpenProject={handleOpenRecentProject}
           onRemoveProject={handleRemoveProject}
-          onCreateProject={handleImportSource}
+          onCreateProject={handleStartCreateProject}
+          onImportProject={handleImportSource}
           isLoading={isLoadingProjects}
         />
       </div>
+      <Dialog open={isCreateProjectDialogOpen} onOpenChange={handleCreateProjectDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create new localization workbook</DialogTitle>
+            <DialogDescription>
+              We'll generate an empty Excel file with columns for {defaultLanguageSummary}. Choose where to save it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="projectName">Project name</Label>
+              <Input
+                id="projectName"
+                value={newProjectName}
+                onChange={(event) => setNewProjectName(event.target.value)}
+                autoFocus
+                placeholder="Localization"
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              After saving the workbook, select your repository folder so Locax can create <code className="rounded bg-muted px-1">localization_meta.csv</code> for contexts and screenshots.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateProjectDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateProject} disabled={!newProjectName.trim() || creatingProject}>
+              {creatingProject ? "Creating…" : "Create project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

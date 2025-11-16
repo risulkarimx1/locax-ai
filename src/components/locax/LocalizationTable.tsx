@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/locax/EmptyState";
 import type { LocalizationRow } from "@/types/locax";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info, Lock, Unlock } from "lucide-react";
 
 type ColumnWidths = Record<string, number>;
 
 const MIN_COLUMN_WIDTH = 140;
 const DEFAULT_COLUMN_WIDTHS = {
   key: 200,
+  description: 260,
   context: 300,
   lang: 220,
 };
@@ -18,12 +22,13 @@ const getLangColumnKey = (lang: string) => `lang-${lang}`;
 
 const getDefaultWidth = (columnKey: string): number => {
   if (columnKey === "key") return DEFAULT_COLUMN_WIDTHS.key;
+  if (columnKey === "description") return DEFAULT_COLUMN_WIDTHS.description;
   if (columnKey === "context") return DEFAULT_COLUMN_WIDTHS.context;
   return DEFAULT_COLUMN_WIDTHS.lang;
 };
 
 const normalizeWidths = (current: ColumnWidths, languages: string[]): ColumnWidths => {
-  const orderedKeys = ["key", "context", ...languages.map(getLangColumnKey)];
+  const orderedKeys = ["key", "description", "context", ...languages.map(getLangColumnKey)];
   const next: ColumnWidths = {};
 
   orderedKeys.forEach((key) => {
@@ -55,6 +60,8 @@ export const LocalizationTable = ({
   const [editingCell, setEditingCell] = useState<{ key: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => createInitialWidths(languages));
+  const [descriptionUnlocked, setDescriptionUnlocked] = useState(false);
+  const [showDescLockHint, setShowDescLockHint] = useState(false);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   useEffect(() => {
@@ -69,7 +76,25 @@ export const LocalizationTable = ({
     setColumnWidths(prev => normalizeWidths(prev, languages));
   }, [languages]);
 
+  useEffect(() => {
+    if (!showDescLockHint) return;
+    const id = setTimeout(() => setShowDescLockHint(false), 2500);
+    return () => clearTimeout(id);
+  }, [showDescLockHint]);
+
   const getColumnWidth = (columnKey: string) => columnWidths[columnKey] ?? getDefaultWidth(columnKey);
+
+  const ColumnTooltipLabel = ({ label, storage }: { label: string; storage: string }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1">
+          <span>{label}</span>
+          <Info className="h-3 w-3 text-muted-foreground" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{storage}</TooltipContent>
+    </Tooltip>
+  );
 
   const handleResizeStart = (columnKey: string, event: React.MouseEvent) => {
     event.preventDefault();
@@ -98,6 +123,10 @@ export const LocalizationTable = ({
   };
 
   const startEditing = (key: string, field: string, currentValue: string) => {
+    if (field === 'description' && !descriptionUnlocked) {
+      setShowDescLockHint(true);
+      return;
+    }
     setEditingCell({ key, field });
     setEditValue(currentValue);
   };
@@ -123,6 +152,8 @@ export const LocalizationTable = ({
 
       onUpdateRow(key, { key: trimmedKey });
       onSelectKey(trimmedKey);
+    } else if (field === 'description') {
+      onUpdateRow(key, { description: editValue });
     } else if (field === 'context') {
       onUpdateRow(key, { context: editValue });
     } else {
@@ -153,9 +184,11 @@ export const LocalizationTable = ({
           description="Add a new key using the + button next to a category in the tree, or adjust your search query."
         />
       ) : (
-        <table className="w-full border-collapse table-fixed">
+        <TooltipProvider>
+          <table className="w-full border-collapse table-fixed">
           <colgroup>
             <col style={{ width: `${getColumnWidth('key')}px` }} />
+            <col style={{ width: `${getColumnWidth('description')}px` }} />
             <col style={{ width: `${getColumnWidth('context')}px` }} />
             {languages.map(lang => (
               <col 
@@ -175,7 +208,42 @@ export const LocalizationTable = ({
               />
             </th>
             <th className="relative px-4 py-3 text-sm font-semibold text-left whitespace-nowrap group select-none">
-              Context
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <ColumnTooltipLabel label="Description" storage="Saved to Localization.xlsx (Desc column)" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7 text-muted-foreground",
+                      descriptionUnlocked && "text-emerald-600"
+                    )}
+                    onClick={() => setDescriptionUnlocked(prev => !prev)}
+                    aria-pressed={descriptionUnlocked}
+                    aria-label={descriptionUnlocked ? "Lock description editing" : "Unlock description editing"}
+                  >
+                    {descriptionUnlocked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                {!descriptionUnlocked && (
+                  <p
+                    className={cn(
+                      "text-[0.675rem]",
+                      showDescLockHint ? "text-destructive" : "text-muted-foreground"
+                    )}
+                  >
+                    {showDescLockHint ? "Unlock to edit descriptions." : "Locked until explicitly unlocked."}
+                  </p>
+                )}
+              </div>
+              <span
+                aria-hidden="true"
+                onMouseDown={(e) => handleResizeStart('description', e)}
+                className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none bg-transparent group-hover:bg-border"
+              />
+            </th>
+            <th className="relative px-4 py-3 text-sm font-semibold text-left whitespace-nowrap group select-none">
+              <ColumnTooltipLabel label="Context" storage="Saved to localization_meta.csv" />
               <span
                 aria-hidden="true"
                 onMouseDown={(e) => handleResizeStart('context', e)}
@@ -253,7 +321,36 @@ export const LocalizationTable = ({
                   className="px-4 py-3 text-sm text-muted-foreground"
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    startEditing(row.key, 'context', row.context);
+                    startEditing(row.key, 'description', row.description ?? '');
+                  }}
+                >
+                  {editingCell?.key === row.key && editingCell.field === 'description' ? (
+                    <Textarea
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={saveEdit}
+                      onKeyDown={handleKeyDown}
+                      autoFocus
+                      className="min-h-[60px]"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <div className={cn(
+                      isSelected ? "whitespace-normal" : "whitespace-nowrap overflow-hidden text-ellipsis",
+                      !row.description && "text-muted-foreground/50"
+                    )}>
+                      {row.description || 'No description'}
+                    </div>
+                  )}
+                </td>
+                <td 
+                  className={cn(
+                    "px-4 py-3 text-sm",
+                    !row.context && "text-muted-foreground/50"
+                  )}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startEditing(row.key, 'context', row.context ?? '');
                   }}
                 >
                   {editingCell?.key === row.key && editingCell.field === 'context' ? (
@@ -270,7 +367,7 @@ export const LocalizationTable = ({
                     <div className={cn(
                       isSelected ? "whitespace-normal" : "whitespace-nowrap overflow-hidden text-ellipsis"
                     )}>
-                      {row.context || <span className="text-muted-foreground/50">No context</span>}
+                      {row.context || 'No context'}
                     </div>
                   )}
                 </td>
@@ -310,7 +407,8 @@ export const LocalizationTable = ({
             );
           })}
         </tbody>
-        </table>
+          </table>
+        </TooltipProvider>
       )}
     </div>
   );

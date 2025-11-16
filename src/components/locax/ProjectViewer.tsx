@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Plus, Search, Trash2 } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,6 +17,7 @@ interface ProjectViewerProps {
   onOpenProject: (project: ProjectReference) => void;
   onRemoveProject: (project: ProjectReference) => void;
   onCreateProject: () => void;
+  onImportProject: () => void;
   isLoading?: boolean;
 }
 
@@ -59,7 +60,7 @@ const statusFilters: { value: StatusFilter; label: string }[] = [
 ];
 
 const getProjectStatus = (project: ProjectReference): DerivedStatus => {
-  if (!project.csvFileHandle) {
+  if (!project.sourceFileHandle) {
     return "needs-permission";
   }
 
@@ -108,6 +109,7 @@ export const ProjectViewer = ({
   onOpenProject,
   onRemoveProject,
   onCreateProject,
+  onImportProject,
   isLoading,
 }: ProjectViewerProps) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -141,6 +143,15 @@ export const ProjectViewer = ({
           <div className="md:hidden">
             <ThemeToggle />
           </div>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onImportProject}
+            className="gap-2 rounded-2xl border-border/70 bg-panel text-foreground shadow-sm hover:bg-panel-hover"
+          >
+            <Upload className="h-4 w-4" />
+            Import File
+          </Button>
           <Button
             size="lg"
             onClick={onCreateProject}
@@ -199,10 +210,10 @@ export const ProjectViewer = ({
             here for quick access.
           </p>
           <Button
-            onClick={onCreateProject}
+            onClick={onImportProject}
             className="mt-8 gap-2 rounded-xl bg-primary px-6 text-primary-foreground shadow-md hover:bg-primary/90"
           >
-            <Plus className="h-4 w-4" />
+            <Upload className="h-4 w-4" />
             Import localization file
           </Button>
         </div>

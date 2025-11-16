@@ -86,6 +86,8 @@ export const CategoryTree = ({ rows, selectedKey, onSelectKey, onAddKey }: Categ
     const fullKey = `${trimmedCategory}:${trimmedKey}`;
     const newRow: LocalizationRow = {
       key: fullKey,
+      type: "Text",
+      description: newKeyContext,
       context: newKeyContext,
       translations: { en: trimmedEnglish },
     };

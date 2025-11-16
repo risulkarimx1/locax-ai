@@ -7,6 +7,23 @@ const GEMINI_CHAT_URL = `https://generativelanguage.googleapis.com/v1beta/models
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
 
+type OpenRouterMessageChunk = string | { text?: string };
+type OpenRouterResponse = {
+  message?: {
+    content?: string | OpenRouterMessageChunk[];
+  };
+};
+
+const chunkToText = (chunk: OpenRouterMessageChunk): string => {
+  if (typeof chunk === "string") {
+    return chunk;
+  }
+  return typeof chunk?.text === "string" ? chunk.text : "";
+};
+
+const hasTextProperty = (value: unknown): value is { text: string } =>
+  typeof value === "object" && value !== null && typeof (value as { text?: unknown }).text === "string";
+
 interface TranslationRequest {
   apiKey?: string;
   sourceText: string;
@@ -222,22 +239,15 @@ async function requestOllamaTranslation({ endpoint, userPrompt, model }: OllamaR
     throw new Error(errorText || "Translation request failed.");
   }
 
-  const data = await response.json();
-  const messageContent = data?.message?.content;
+  const data: OpenRouterResponse = await response.json();
+  const messageContent = data.message?.content;
   let content = "";
   if (Array.isArray(messageContent)) {
-    content = messageContent
-      .map((part: any) => {
-        if (typeof part === "string") return part;
-        if (typeof part?.text === "string") return part.text;
-        return "";
-      })
-      .join("")
-      .trim();
+    content = messageContent.map(chunkToText).join("").trim();
   } else if (typeof messageContent === "string") {
     content = messageContent;
-  } else if (messageContent && typeof (messageContent as any).text === "string") {
-    content = (messageContent as any).text;
+  } else if (hasTextProperty(messageContent)) {
+    content = messageContent.text;
   }
 
   if (!content) {

@@ -6,6 +6,8 @@ type ManualStatus = "idle" | "saving" | "error";
 interface StatusBarProps {
   autoStatus: AutoStatus;
   manualStatus: ManualStatus;
+  sourceDirty: boolean;
+  metaDirty: boolean;
 }
 
 const statusIcon = {
@@ -14,7 +16,7 @@ const statusIcon = {
   error: <AlertTriangle className="w-3.5 h-3.5 text-destructive" />,
 };
 
-export const StatusBar = ({ autoStatus, manualStatus }: StatusBarProps) => {
+export const StatusBar = ({ autoStatus, manualStatus, sourceDirty, metaDirty }: StatusBarProps) => {
   return (
     <footer className="flex items-center justify-between h-10 px-4 border-t bg-panel dark:bg-card border-border/80 text-xs text-muted-foreground">
       <div className="flex items-center gap-4">
@@ -30,6 +32,16 @@ export const StatusBar = ({ autoStatus, manualStatus }: StatusBarProps) => {
               : <Check className="w-3.5 h-3.5 text-emerald-500" />}
           <span>{manualStatus === "saving" ? "Saving to source…" : manualStatus === "error" ? "Save failed" : "Save ready"}</span>
         </div>
+        {(sourceDirty || metaDirty) && (
+          <div className="flex items-center gap-2">
+            {sourceDirty && (
+              <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-600">Sheet unsaved</span>
+            )}
+            {metaDirty && (
+              <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-blue-600">Meta unsaved</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-1.5">

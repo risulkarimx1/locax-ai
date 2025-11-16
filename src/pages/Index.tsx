@@ -5,10 +5,14 @@ import { LocalizationTable } from "@/components/locax/LocalizationTable";
 import { ScreenshotPanel } from "@/components/locax/ScreenshotPanel";
 import { WelcomeScreen } from "@/components/locax/WelcomeScreen";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { StatusBar } from "@/components/locax/StatusBar";
-import { writeCSVToFile, writeTempLocalizationFile, readTempLocalizationFile } from "@/lib/file-system";
+import { writeTempLocalizationFile } from "@/lib/file-system";
+import { writeSourceFile } from "@/lib/source-writer";
+import { ensureMetaFileHandle, writeMetaFile } from "@/lib/meta-file";
 import type { LocalizationRow, ProjectState } from "@/types/locax";
 import { useToast } from "@/hooks/use-toast";
+import { Info } from "lucide-react";
 
 const Index = () => {
   const { toast } = useToast();
@@ -20,6 +24,47 @@ const Index = () => {
   const [autoSyncStatus, setAutoSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   const [manualSaveStatus, setManualSaveStatus] = useState<"idle" | "saving" | "error">("idle");
   const [isScreenshotPanelVisible, setScreenshotPanelVisible] = useState(false);
+
+  const setProjectStateSafe = (updater: (state: ProjectState) => ProjectState) => {
+    setProjectState(prev => (prev ? updater(prev) : prev));
+  };
+
+  const markDirtyFromUpdates = (state: ProjectState, updates: Partial<LocalizationRow>) => {
+    const sourceFields: (keyof LocalizationRow)[] = ["key", "description", "translations", "type"];
+    const metaFields: (keyof LocalizationRow)[] = ["context", "screenshot", "linkedKeys", "notes"];
+
+    const sourceDirty = sourceFields.some(field => field in updates);
+    const metaDirty = metaFields.some(field => field in updates);
+
+    return {
+      sourceDirty: state.sourceDirty || sourceDirty,
+      metaDirty: state.metaDirty || metaDirty,
+    };
+  };
+
+  const updateRow = (key: string, updates: Partial<LocalizationRow>) => {
+    setProjectState(prev => {
+      if (!prev) return prev;
+
+      const nextRows = prev.rows.map(row => (row.key === key ? { ...row, ...updates } : row));
+      const dirty = markDirtyFromUpdates(prev, updates);
+      let workbookRowMap = prev.workbookRowMap;
+
+      if (updates.key && prev.workbookRowMap?.[key]) {
+        workbookRowMap = { ...prev.workbookRowMap };
+        workbookRowMap[updates.key] = workbookRowMap[key];
+        delete workbookRowMap[key];
+      }
+
+      return {
+        ...prev,
+        rows: nextRows,
+        workbookRowMap,
+        sourceDirty: dirty.sourceDirty,
+        metaDirty: dirty.metaDirty,
+      };
+    });
+  };
 
   useEffect(() => {
     if (!projectState) return;
@@ -65,7 +110,7 @@ const Index = () => {
   }, [selectedKey]);
 
   const handleManualSave = async () => {
-    if (!projectState?.csvFileHandle) {
+    if (!projectState?.sourceFileHandle) {
       toast({
         title: "Manual save unavailable",
         description: "Reimport the CSV/Excel file using a supported browser to enable saving.",
@@ -76,19 +121,74 @@ const Index = () => {
 
     try {
       setManualSaveStatus("saving");
-      const permission = await projectState.csvFileHandle.requestPermission?.({ mode: "readwrite" });
+      const permission = await projectState.sourceFileHandle.requestPermission?.({ mode: "readwrite" });
       if (permission === "denied") {
         throw new Error("Permission denied for writing to the source file.");
       }
 
-      const tempContent = (await readTempLocalizationFile()) ?? undefined;
-      await writeCSVToFile(
-        projectState.csvFileHandle,
-        projectState.languages,
-        projectState.rows,
-        tempContent
-      );
-      setLastSaved(new Date());
+      const currentSourceFile = await projectState.sourceFileHandle.getFile();
+      if (
+        projectState.sourceLastModified &&
+        projectState.sourceLastModified !== currentSourceFile.lastModified
+      ) {
+        throw new Error(
+          "The source spreadsheet changed outside Locax. Reimport it to avoid overwriting those edits."
+        );
+      }
+
+      const metaHandle = await ensureMetaFileHandle({
+        folderHandle: projectState.folderHandle ?? null,
+        metaFileHandle: projectState.metaFileHandle ?? null,
+        rows: projectState.rows,
+      });
+
+      if (!metaHandle) {
+        throw new Error("Unable to access localization_meta.csv. Select the project folder again to grant access.");
+      }
+
+      if (projectState.metaLastModified) {
+        const currentMetaFile = await metaHandle.getFile();
+        if (currentMetaFile.lastModified !== projectState.metaLastModified) {
+          throw new Error(
+            "localization_meta.csv was modified outside Locax. Reopen the project to merge those changes."
+          );
+        }
+      }
+
+      const sourceResult = await writeSourceFile({
+        fileHandle: projectState.sourceFileHandle,
+        fileType: projectState.sourceFileType ?? "csv",
+        languages: projectState.languages,
+        rows: projectState.rows,
+        header: projectState.sourceHeaders,
+        languageColumnMap: projectState.languageColumnMap,
+        descColumn: projectState.descColumn,
+        typeColumn: projectState.typeColumn,
+        workbookRowMap: projectState.workbookRowMap,
+      });
+
+      const metaLastModified = await writeMetaFile(metaHandle, projectState.rows);
+
+      setProjectState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          languageColumnMap: sourceResult.languageColumnMap ?? prev.languageColumnMap,
+          workbookRowMap: sourceResult.workbookRowMap ?? prev.workbookRowMap,
+          sourceHeaders: sourceResult.header ?? prev.sourceHeaders,
+          descColumn: sourceResult.descColumn ?? prev.descColumn,
+          typeColumn: sourceResult.typeColumn ?? prev.typeColumn,
+          metaFileHandle: metaHandle,
+          metaExists: true,
+          sourceLastModified: sourceResult.lastModified ?? currentSourceFile.lastModified ?? Date.now(),
+          metaLastModified,
+          sourceDirty: false,
+          metaDirty: false,
+        };
+      });
+
+      const savedAt = new Date();
+      setLastSaved(savedAt);
       setManualSaveStatus("idle");
       toast({
         title: "Saved",
@@ -105,11 +205,42 @@ const Index = () => {
     }
   };
 
+  const handleDeleteKey = (key: string) => {
+    if (!projectState) return;
+
+    setProjectState(prev => {
+      if (!prev) return prev;
+      if (!prev.rows.some(row => row.key === key)) {
+        return prev;
+      }
+
+      const nextMap = prev.workbookRowMap ? { ...prev.workbookRowMap } : undefined;
+      if (nextMap) {
+        delete nextMap[key];
+      }
+
+      return {
+        ...prev,
+        rows: prev.rows.filter(row => row.key !== key),
+        workbookRowMap: nextMap,
+        sourceDirty: true,
+        metaDirty: true,
+      };
+    });
+
+    setSelectedKey(current => (current === key ? null : current));
+    toast({
+      title: "Key deleted",
+      description: `${key} removed from the spreadsheet and meta file.`,
+    });
+  };
+
   const filteredRows = projectState?.rows.filter(row => {
     const searchLower = searchQuery.toLowerCase();
     return (
       row.key.toLowerCase().includes(searchLower) ||
-      row.context.toLowerCase().includes(searchLower) ||
+      (row.description ?? "").toLowerCase().includes(searchLower) ||
+      (row.context ?? "").toLowerCase().includes(searchLower) ||
       Object.values(row.translations).some(text => 
         text.toLowerCase().includes(searchLower)
       )
@@ -130,6 +261,34 @@ const Index = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {!projectState.metaExists && (
+        <div className="px-4 pt-4">
+          <Alert>
+            <AlertTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Info className="h-4 w-4" />
+              Contexts initialized from descriptions
+            </AlertTitle>
+            <AlertDescription className="text-sm text-muted-foreground">
+              Update the <span className="font-medium">Context</span> column to guide AI translations. Once you save, a
+              <code className="mx-1 rounded bg-muted px-1 text-foreground">localization_meta.csv</code> file will store these instructions.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+      {projectState.folderHandle && (
+        <div className="px-4 pt-2">
+          <Alert variant="secondary">
+            <AlertTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Info className="h-4 w-4" />
+              Git tip
+            </AlertTitle>
+            <AlertDescription className="text-sm text-muted-foreground">
+              Add <code className="mx-1 rounded bg-muted px-1 text-foreground">localization_meta.csv</code> (and future screenshot folders)
+              to your <code className="mx-1 rounded bg-muted px-1 text-foreground">.gitignore</code> if AI notes shouldn&apos;t leave the repo.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
       <Header 
         projectState={projectState}
         setProjectState={setProjectState}
@@ -138,8 +297,10 @@ const Index = () => {
         isSaving={isSaving}
         lastSaved={lastSaved}
         onManualSave={handleManualSave}
-        manualSaveDisabled={!projectState.csvFileHandle || manualSaveStatus === "saving"}
+        manualSaveDisabled={!projectState.sourceFileHandle || manualSaveStatus === "saving"}
         isManualSaving={manualSaveStatus === "saving"}
+        selectedKey={selectedKey}
+        onDeleteKey={handleDeleteKey}
         onExitProject={handleExitToHome}
       />
       
@@ -149,9 +310,14 @@ const Index = () => {
           selectedKey={selectedKey}
           onSelectKey={setSelectedKey}
           onAddKey={(category, newRow) => {
-            setProjectState({
-              ...projectState,
-              rows: [...projectState.rows, newRow]
+            setProjectState(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                rows: [...prev.rows, newRow],
+                sourceDirty: true,
+                metaDirty: true,
+              };
             });
           }}
         />
@@ -161,28 +327,14 @@ const Index = () => {
           languages={projectState.languages}
           selectedKey={selectedKey}
           onSelectKey={setSelectedKey}
-          onUpdateRow={(key, updates) => {
-            setProjectState({
-              ...projectState,
-              rows: projectState.rows.map(row => 
-                row.key === key ? { ...row, ...updates } : row
-              )
-            });
-          }}
+          onUpdateRow={updateRow}
         />
         
         {isScreenshotPanelVisible && selectedRow && (
           <ScreenshotPanel 
             selectedRow={selectedRow}
             allRows={projectState.rows}
-            onUpdateRow={(key, updates) => {
-              setProjectState({
-                ...projectState,
-                rows: projectState.rows.map(row => 
-                  row.key === key ? { ...row, ...updates } : row
-                )
-              });
-            }}
+            onUpdateRow={updateRow}
             onClose={() => setScreenshotPanelVisible(false)}
             aiApiKey={projectState.aiApiKey}
             aiProvider={projectState.aiProvider}
@@ -204,6 +356,8 @@ const Index = () => {
       <StatusBar
         autoStatus={autoSyncStatus}
         manualStatus={manualSaveStatus}
+        sourceDirty={projectState.sourceDirty}
+        metaDirty={projectState.metaDirty}
       />
     </div>
   );

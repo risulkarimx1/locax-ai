@@ -17,6 +17,16 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,13 +35,20 @@ import {
 } from "@/components/ui/select";
 import { Search, Globe, Zap, GitCommit, Save, Plus, Trash2, Download, Upload, Menu, Home } from "lucide-react";
 import { AutoSaveIndicator } from "@/components/locax/AutoSaveIndicator";
-import type { ProjectState, AIProvider } from "@/types/locax";
+import type { ProjectState, AIProvider, LocalizationRow } from "@/types/locax";
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { parseSourceFile } from "@/lib/source-file-parser";
 import { exportSourceCSV } from "@/lib/file-system";
 import { DEFAULT_AI_PROVIDER, getStoredApiKey, getStoredEndpoint, getStoredModel, persistAiSettings } from "@/lib/ai-config";
 import { ThemeToggle } from "@/components/ThemeToggle";
+
+type OllamaTagsResponse = {
+  models?: Array<{ name?: string }>;
+};
+
+const hasTextProperty = (value: unknown): value is { text: string } =>
+  typeof value === "object" && value !== null && typeof (value as { text?: unknown }).text === "string";
 
 interface HeaderProps {
   projectState: ProjectState;
@@ -43,6 +60,8 @@ interface HeaderProps {
   onManualSave: () => void;
   manualSaveDisabled: boolean;
   isManualSaving: boolean;
+  selectedKey: string | null;
+  onDeleteKey: (key: string) => void;
   onExitProject: () => void;
 }
 
@@ -56,6 +75,8 @@ export const Header = ({
   onManualSave,
   manualSaveDisabled,
   isManualSaving,
+  selectedKey,
+  onDeleteKey,
   onExitProject,
 }: HeaderProps) => {
   const { toast } = useToast();
@@ -74,6 +95,7 @@ export const Header = ({
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [modelManuallySet, setModelManuallySet] = useState(false);
   const [ollamaRefreshCounter, setOllamaRefreshCounter] = useState(0);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const providerLabels: Record<AIProvider, string> = useMemo(
     () => ({
       openai: "OpenAI",
@@ -136,11 +158,11 @@ export const Header = ({
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        const data = await response.json();
-        const models = Array.isArray(data?.models)
+        const data: OllamaTagsResponse = await response.json();
+        const models = Array.isArray(data.models)
           ? data.models
-              .map((model: any) => model?.name)
-              .filter((name: unknown): name is string => typeof name === "string")
+              .map(model => model?.name)
+              .filter((name): name is string => typeof name === "string")
           : [];
         if (!cancelled) {
           setOllamaModels(models);
@@ -267,7 +289,8 @@ export const Header = ({
       rows: projectState.rows.map(row => ({
         ...row,
         translations: { ...row.translations, [newLanguageCode]: "" }
-      }))
+      })),
+      sourceDirty: true,
     });
 
     setAddLanguageDialogOpen(false);
@@ -296,7 +319,8 @@ export const Header = ({
       rows: projectState.rows.map(row => {
         const { [langCode]: removed, ...rest } = row.translations;
         return { ...row, translations: rest };
-      })
+      }),
+      sourceDirty: true,
     });
 
     toast({
@@ -315,17 +339,44 @@ export const Header = ({
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
 
-        const { languages, rows } = await parseSourceFile(file);
+        const parsed = await parseSourceFile(file);
+        const existingMap = projectState.rows.reduce<Record<string, LocalizationRow>>((acc, row) => {
+          acc[row.key] = row;
+          return acc;
+        }, {});
+
+        const mergedRows = parsed.rows.map(row => {
+          const existing = existingMap[row.key];
+          if (!existing) {
+            return row;
+          }
+
+          return {
+            ...row,
+            context: existing.context,
+            screenshot: existing.screenshot,
+            linkedKeys: existing.linkedKeys,
+            notes: existing.notes,
+          };
+        });
 
         setProjectState({
           ...projectState,
-          languages,
-          rows,
+          languages: parsed.languages,
+          rows: mergedRows,
+          workbookRowMap: parsed.workbookRowMap,
+          languageColumnMap: parsed.languageColumnMap,
+          sourceHeaders: parsed.header,
+          descColumn: parsed.descColumn,
+          typeColumn: parsed.typeColumn,
+          sourceDirty: false,
+          metaDirty: false,
+          sourceLastModified: file.lastModified,
         });
 
         toast({
           title: "Source file imported",
-          description: `Imported ${rows.length} keys with ${languages.length} languages.`,
+          description: `Imported ${mergedRows.length} keys with ${parsed.languages.length} languages.`,
         });
       };
 
@@ -341,7 +392,15 @@ export const Header = ({
 
   const handleExportSource = async () => {
     try {
-      await exportSourceCSV(projectState.languages, projectState.rows, projectState.projectName);
+      await exportSourceCSV({
+        languages: projectState.languages,
+        rows: projectState.rows,
+        projectName: projectState.projectName,
+        header: projectState.sourceHeaders,
+        languageColumnMap: projectState.languageColumnMap,
+        descColumn: projectState.descColumn,
+        typeColumn: projectState.typeColumn,
+      });
       
       toast({
         title: "Export complete",
@@ -354,6 +413,12 @@ export const Header = ({
         variant: "destructive",
       });
     }
+  };
+
+  const handleDeleteSelectedKey = () => {
+    if (!selectedKey) return;
+    onDeleteKey(selectedKey);
+    setConfirmDeleteOpen(false);
   };
 
   return (
@@ -381,7 +446,7 @@ export const Header = ({
           Home
         </Button>
 
-        <DropdownMenu>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm">
                 <Menu className="w-4 h-4 mr-2" />
@@ -403,6 +468,17 @@ export const Header = ({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2 text-destructive"
+            disabled={!selectedKey}
+            onClick={() => setConfirmDeleteOpen(true)}
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete key
+          </Button>
 
           <Button
             variant="outline"
@@ -657,6 +733,25 @@ export const Header = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedKey
+                ? `"${selectedKey}" will be removed from the spreadsheet and meta file on the next save.`
+                : "Select a key from the table before deleting."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSelectedKey} disabled={!selectedKey} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete key
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

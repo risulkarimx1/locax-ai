@@ -1,5 +1,5 @@
 import { serializeCSV, serializeSourceCSV } from "./csv-parser";
-import type { LocalizationRow } from "@/types/locax";
+import type { ColumnMetadata, LocalizationRow } from "@/types/locax";
 
 type StorageManagerWithDirectory = StorageManager & {
   getDirectory?: () => Promise<FileSystemDirectoryHandle>;
@@ -7,16 +7,38 @@ type StorageManagerWithDirectory = StorageManager & {
 
 const TEMP_FILE_NAME = "localization_temp.csv";
 const TEMP_STORAGE_KEY = "locax-temp-csv-fallback";
+const UTF8_BOM = "\uFEFF";
 let opfsRootHandlePromise: Promise<FileSystemDirectoryHandle> | null = null;
 
-export async function exportSourceCSV(
-  languages: string[],
-  rows: LocalizationRow[],
-  projectName: string
-): Promise<void> {
+interface ExportSourceCsvOptions {
+  languages: string[];
+  rows: LocalizationRow[];
+  projectName: string;
+  header?: string[];
+  languageColumnMap?: Record<string, ColumnMetadata>;
+  descColumn?: ColumnMetadata;
+  typeColumn?: ColumnMetadata;
+}
+
+export async function exportSourceCSV({
+  languages,
+  rows,
+  projectName,
+  header,
+  languageColumnMap,
+  descColumn,
+  typeColumn,
+}: ExportSourceCsvOptions): Promise<void> {
   try {
-    const csvContent = serializeSourceCSV(languages, rows);
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const serialized = serializeSourceCSV({
+      languages,
+      rows,
+      header,
+      languageColumnMap,
+      descColumn,
+      typeColumn,
+    });
+    const blob = new Blob([UTF8_BOM + serialized.content], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -61,6 +83,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
     rows: [
       {
         key: 'ui:start_button',
+        type: 'Text',
+        description: 'Main menu start button',
         context: 'Main menu start button',
         translations: {
           en: 'Start Game',
@@ -70,6 +94,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'ui:quit_button',
+        type: 'Text',
+        description: 'Main menu quit button',
         context: 'Main menu quit button',
         translations: {
           en: 'Quit',
@@ -79,6 +105,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'weapon:fire',
+        type: 'Text',
+        description: 'Action text for shooting',
         context: 'Action text for shooting',
         translations: {
           en: 'Fire',
@@ -88,6 +116,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'dialog:greeting',
+        type: 'Text',
+        description: 'NPC initial greeting',
         context: 'NPC initial greeting',
         translations: {
           en: 'Hello, traveler!',
@@ -97,6 +127,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'dialog:farewell',
+        type: 'Text',
+        description: 'NPC goodbye message',
         context: 'NPC goodbye message',
         translations: {
           en: 'Farewell.',
@@ -106,6 +138,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'item:potion',
+        type: 'Text',
+        description: 'Consumable health item',
         context: 'Consumable health item',
         translations: {
           en: 'Health Potion',
@@ -115,6 +149,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'menu:settings',
+        type: 'Text',
+        description: 'Title for settings screen',
         context: 'Title for settings screen',
         translations: {
           en: 'Settings',
@@ -124,6 +160,8 @@ export function getSampleData(): { languages: string[]; rows: LocalizationRow[] 
       },
       {
         key: 'hud:ammo',
+        type: 'Text',
+        description: 'Heads-up display ammo count',
         context: 'Heads-up display ammo count',
         translations: {
           en: 'Ammo',
