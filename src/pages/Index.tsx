@@ -109,14 +109,14 @@ const Index = () => {
     }
   }, [selectedKey]);
 
-  const handleManualSave = async () => {
+  const attemptManualSave = async ({ showSuccessToast }: { showSuccessToast: boolean }): Promise<boolean> => {
     if (!projectState?.sourceFileHandle) {
       toast({
         title: "Manual save unavailable",
         description: "Reimport the CSV/Excel file using a supported browser to enable saving.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     try {
@@ -190,10 +190,13 @@ const Index = () => {
       const savedAt = new Date();
       setLastSaved(savedAt);
       setManualSaveStatus("idle");
-      toast({
-        title: "Saved",
-        description: "Changes written to the original file.",
-      });
+      if (showSuccessToast) {
+        toast({
+          title: "Saved",
+          description: "Changes written to the original file.",
+        });
+      }
+      return true;
     } catch (error) {
       setManualSaveStatus("error");
       toast({
@@ -202,7 +205,12 @@ const Index = () => {
         variant: "destructive",
       });
       setTimeout(() => setManualSaveStatus("idle"), 2500);
+      return false;
     }
+  };
+
+  const handleManualSave = async () => {
+    await attemptManualSave({ showSuccessToast: true });
   };
 
   const handleDeleteKey = (key: string) => {
@@ -249,7 +257,14 @@ const Index = () => {
 
   const selectedRow = filteredRows.find(row => row.key === selectedKey);
 
-  const handleExitToHome = () => {
+  const handleExitToHome = async () => {
+    if (projectState?.sourceDirty || projectState?.metaDirty) {
+      const success = await attemptManualSave({ showSuccessToast: false });
+      if (!success) {
+        return;
+      }
+    }
+
     setProjectState(null);
     setSelectedKey(null);
     setSearchQuery("");
@@ -271,20 +286,6 @@ const Index = () => {
             <AlertDescription className="text-sm text-muted-foreground">
               Update the <span className="font-medium">Context</span> column to guide AI translations. Once you save, a
               <code className="mx-1 rounded bg-muted px-1 text-foreground">localization_meta.csv</code> file will store these instructions.
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
-      {projectState.folderHandle && (
-        <div className="px-4 pt-2">
-          <Alert variant="secondary">
-            <AlertTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Info className="h-4 w-4" />
-              Git tip
-            </AlertTitle>
-            <AlertDescription className="text-sm text-muted-foreground">
-              Add <code className="mx-1 rounded bg-muted px-1 text-foreground">localization_meta.csv</code> (and future screenshot folders)
-              to your <code className="mx-1 rounded bg-muted px-1 text-foreground">.gitignore</code> if AI notes shouldn&apos;t leave the repo.
             </AlertDescription>
           </Alert>
         </div>

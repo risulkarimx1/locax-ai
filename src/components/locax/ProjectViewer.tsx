@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Loader2, MoreHorizontal, Plus, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,8 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ProjectReference } from "@/lib/project-storage";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { saveProjectReference, type ProjectReference } from "@/lib/project-storage";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useToast } from "@/hooks/use-toast";
 
 interface ProjectViewerProps {
   projects: ProjectReference[];
@@ -114,15 +121,116 @@ export const ProjectViewer = ({
 }: ProjectViewerProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [relinkedPaths, setRelinkedPaths] = useState<Record<string, string>>({});
+  const { toast } = useToast();
+  const revealActionLabel =
+    typeof window !== "undefined" && window.desktopApp?.platform === "darwin"
+      ? "Show in Finder"
+      : "Show in Folder";
 
   const filteredProjects = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
     return projects.filter(project => {
-      const matchesSearch = project.projectName.toLowerCase().includes(searchQuery.toLowerCase());
+      const cachedPath = relinkedPaths[project.id];
+      const combinedName = `${project.projectName} ${project.repoFolderName ?? ""} ${project.folderHandle?.name ?? ""} ${project.repoFolderPath ?? cachedPath ?? ""}`.toLowerCase();
+      const matchesSearch = !normalizedQuery || combinedName.includes(normalizedQuery);
       const status = getProjectStatus(project);
       const matchesStatus = statusFilter === "all" || status === statusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [projects, searchQuery, statusFilter]);
+  }, [projects, relinkedPaths, searchQuery, statusFilter]);
+
+  const relinkProjectPath = async (
+    project: ProjectReference,
+    desktopApp: DesktopAppContext
+  ): Promise<string | null> => {
+    if (!desktopApp.selectDirectory) {
+      return null;
+    }
+
+    const displayName = project.repoFolderName ?? project.folderHandle?.name ?? project.projectName;
+
+    try {
+      const selectedPath = await desktopApp.selectDirectory({
+        title: "Locate project folder",
+        message: `Select the folder that contains ${displayName}.`,
+      });
+
+      if (!selectedPath) {
+        return null;
+      }
+
+      setRelinkedPaths(prev => ({ ...prev, [project.id]: selectedPath }));
+
+      try {
+        await saveProjectReference({
+          projectName: project.projectName,
+          fileName: project.fileName,
+          languages: project.languages,
+          rowCount: project.rowCount,
+          sourceFileHandle: project.sourceFileHandle,
+          metaFileHandle: project.metaFileHandle,
+          sourceFileType: project.sourceFileType,
+          metaExists: project.metaExists,
+          folderHandle: project.folderHandle,
+          gitBranch: project.gitBranch,
+          gitStatus: project.gitStatus,
+          repoFolderName: project.repoFolderName ?? project.folderHandle?.name ?? null,
+          repoFolderPath: selectedPath,
+        });
+      } catch (persistError) {
+        console.error("Failed to persist folder path", persistError);
+      }
+
+      return selectedPath;
+    } catch (error) {
+      console.error("Folder selection failed", error);
+      toast({
+        title: "Unable to locate folder",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+      return null;
+    }
+  };
+
+  const handleShowInFolder = async (project: ProjectReference) => {
+    setMenuOpenId(null);
+    const desktopApp = typeof window !== "undefined" ? window.desktopApp : undefined;
+
+    if (!desktopApp?.openPath) {
+      toast({
+        title: "Desktop only",
+        description: "Open this project in the desktop app to reveal it in your file browser.",
+      });
+      return;
+    }
+
+    let targetPath = project.repoFolderPath ?? relinkedPaths[project.id] ?? null;
+
+    if (!targetPath) {
+      targetPath = await relinkProjectPath(project, desktopApp);
+    }
+
+    if (!targetPath) {
+      toast({
+        title: "Folder required",
+        description: "Select the project folder once to enable Show in Finder.",
+      });
+      return;
+    }
+
+    try {
+      await desktopApp.openPath(targetPath);
+    } catch (error) {
+      toast({
+        title: "Unable to open folder",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, project: ProjectReference) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -222,6 +330,7 @@ export const ProjectViewer = ({
           {filteredProjects.map(project => {
             const status = getProjectStatus(project);
             const statusMeta = statusStyles[status];
+            const displayName = project.repoFolderName || project.folderHandle?.name || project.projectName;
 
             return (
               <div
@@ -234,21 +343,52 @@ export const ProjectViewer = ({
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-lg font-semibold">{project.projectName}</p>
+                    <p className="text-lg font-semibold">{displayName}</p>
                     <p className="text-sm text-muted-foreground">Updated {formatLastOpened(project.lastOpened)}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground transition hover:text-destructive"
-                    onClick={event => {
-                      event.stopPropagation();
-                      onRemoveProject(project);
-                    }}
-                    aria-label={`Remove ${project.projectName}`}
+                  <DropdownMenu
+                    open={menuOpenId === project.id}
+                    onOpenChange={open => setMenuOpenId(open ? project.id : null)}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground transition hover:text-foreground"
+                        onClick={event => event.stopPropagation()}
+                        aria-label={`Project actions for ${displayName}`}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-44 border-border/70 bg-panel text-foreground"
+                      onClick={event => event.stopPropagation()}
+                    >
+                      <DropdownMenuItem
+                        disabled={!project.repoFolderPath && !project.folderHandle}
+                        onSelect={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void handleShowInFolder(project);
+                        }}
+                      >
+                        {revealActionLabel}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setMenuOpenId(null);
+                          onRemoveProject(project);
+                        }}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3 text-xs text-muted-foreground">

@@ -19,6 +19,8 @@ export interface ProjectReference {
   folderHandle: FileSystemDirectoryHandle | null;
   gitBranch: string | null;
   gitStatus: GitStatus;
+  repoFolderName: string | null;
+  repoFolderPath: string | null;
 }
 
 export interface SaveProjectReferenceInput {
@@ -33,6 +35,8 @@ export interface SaveProjectReferenceInput {
   folderHandle?: FileSystemDirectoryHandle | null;
   gitBranch?: string | null;
   gitStatus?: GitStatus;
+  repoFolderName?: string | null;
+  repoFolderPath?: string | null;
 }
 
 type StoredProjectReference = Partial<ProjectReference> & {
@@ -54,6 +58,8 @@ function normalizeReference(entry: StoredProjectReference): ProjectReference {
     folderHandle: entry.folderHandle ?? null,
     gitBranch: entry.gitBranch ?? null,
     gitStatus: entry.gitStatus ?? "unknown",
+    repoFolderName: entry.repoFolderName ?? null,
+    repoFolderPath: entry.repoFolderPath ?? null,
   };
 }
 
@@ -302,6 +308,8 @@ export async function saveProjectReference(input: SaveProjectReferenceInput): Pr
           metaExists: input.metaExists ?? existing.metaExists ?? false,
           folderHandle:
             input.folderHandle === undefined ? existing.folderHandle : input.folderHandle ?? null,
+          repoFolderName: input.repoFolderName ?? existing.repoFolderName ?? null,
+          repoFolderPath: input.repoFolderPath ?? existing.repoFolderPath ?? null,
         }
       : {
           id: createId(),
@@ -317,6 +325,8 @@ export async function saveProjectReference(input: SaveProjectReferenceInput): Pr
           folderHandle: input.folderHandle ?? null,
           gitBranch: input.gitBranch ?? null,
           gitStatus: input.gitStatus ?? "unknown",
+          repoFolderName: input.repoFolderName ?? null,
+          repoFolderPath: input.repoFolderPath ?? null,
         };
 
     await persistEntry(entry);

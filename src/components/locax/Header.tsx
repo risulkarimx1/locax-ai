@@ -62,7 +62,7 @@ interface HeaderProps {
   isManualSaving: boolean;
   selectedKey: string | null;
   onDeleteKey: (key: string) => void;
-  onExitProject: () => void;
+  onExitProject: () => Promise<void> | void;
 }
 
 export const Header = ({ 
@@ -440,7 +440,9 @@ export const Header = ({
           variant="ghost"
           size="sm"
           className="gap-2"
-          onClick={onExitProject}
+          onClick={() => {
+            void onExitProject();
+          }}
         >
           <Home className="w-4 h-4" />
           Home

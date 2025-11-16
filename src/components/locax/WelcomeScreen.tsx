@@ -117,6 +117,22 @@ const buildAiSettings = () => {
   };
 };
 
+const deriveFolderPathFromFile = (file: File): string | null => {
+  const withPath = file as File & { path?: string };
+  const filePath = withPath.path;
+  if (!filePath) {
+    return null;
+  }
+
+  const trimmed = filePath.replace(/[\\/]+$/, "");
+  const lastSlash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  if (lastSlash === -1) {
+    return null;
+  }
+
+  return filePath.slice(0, lastSlash);
+};
+
 const sanitizeProjectSlug = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]/g, "_") || "Localization";
 
 const buildDefaultLanguageColumnMap = (): Record<string, ColumnMetadata> =>
@@ -264,6 +280,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
     const parsed = await parseSourceFile(file);
     const projectBaseName = file.name.replace(/\.(csv|xlsx|xls)$/i, "");
     const aiSettings = buildAiSettings();
+    const repoFolderPath = deriveFolderPathFromFile(file);
 
     const { folderHandle, gitBranch, gitStatus } = await requestRepoContext();
 
@@ -309,6 +326,8 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       folderHandle,
       gitBranch,
       gitStatus,
+      repoFolderName: folderHandle?.name ?? null,
+      repoFolderPath,
     });
 
     await refreshRecentProjects();
@@ -407,6 +426,7 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       const file = await project.sourceFileHandle.getFile();
       const parsed = await parseSourceFile(file);
       const aiSettings = buildAiSettings();
+      const repoFolderPath = deriveFolderPathFromFile(file);
 
       const metaResult = await loadMetaData({
         folderHandle: project.folderHandle ?? null,
@@ -416,17 +436,17 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
 
       const mergedRows = mergeRowsWithMeta(parsed.rows, metaResult.metaByKey);
 
-    onProjectLoad({
-      folderHandle: project.folderHandle ?? null,
-      sourceFileHandle: project.sourceFileHandle,
-      metaFileHandle: metaResult.metaFileHandle ?? project.metaFileHandle ?? null,
-      sourceFileType: project.sourceFileType ?? parsed.sourceFileType,
-      metaExists: metaResult.metaExists ?? project.metaExists ?? false,
-      sourceDirty: false,
-      metaDirty: false,
-      projectName: project.projectName,
-      gitBranch: project.gitBranch ?? null,
-      gitStatus: project.gitStatus ?? "unknown",
+      onProjectLoad({
+        folderHandle: project.folderHandle ?? null,
+        sourceFileHandle: project.sourceFileHandle,
+        metaFileHandle: metaResult.metaFileHandle ?? project.metaFileHandle ?? null,
+        sourceFileType: project.sourceFileType ?? parsed.sourceFileType,
+        metaExists: metaResult.metaExists ?? project.metaExists ?? false,
+        sourceDirty: false,
+        metaDirty: false,
+        projectName: project.projectName,
+        gitBranch: project.gitBranch ?? null,
+        gitStatus: project.gitStatus ?? "unknown",
         languages: parsed.languages,
         rows: mergedRows,
         workbookRowMap: parsed.workbookRowMap,
@@ -440,6 +460,21 @@ export const WelcomeScreen = ({ onProjectLoad }: WelcomeScreenProps) => {
       });
 
       await markProjectOpened(project.id);
+      await saveProjectReference({
+        projectName: project.projectName,
+        fileName: project.fileName,
+        languages: parsed.languages,
+        rowCount: mergedRows.length,
+        sourceFileHandle: project.sourceFileHandle,
+        metaFileHandle: metaResult.metaFileHandle ?? project.metaFileHandle ?? null,
+        sourceFileType: project.sourceFileType ?? parsed.sourceFileType,
+        metaExists: metaResult.metaExists ?? project.metaExists ?? false,
+        folderHandle: project.folderHandle ?? null,
+        gitBranch: project.gitBranch ?? null,
+        gitStatus: project.gitStatus ?? "unknown",
+        repoFolderName: project.folderHandle?.name ?? project.repoFolderName ?? null,
+        repoFolderPath: repoFolderPath ?? project.repoFolderPath ?? null,
+      });
       await refreshRecentProjects();
 
       toast({
