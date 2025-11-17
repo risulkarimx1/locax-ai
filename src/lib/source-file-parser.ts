@@ -115,8 +115,7 @@ async function parseExcelFile(file: File): Promise<LocalizationImport> {
     }
   });
 
-  const rows: LocalizationRow[] = [];
-  const workbookRowMap: Record<string, number> = {};
+  const rowByKey = new Map<string, { row: LocalizationRow; rowIndex: number }>();
 
   for (let i = 1; i < sheetRows.length; i++) {
     const row = sheetRows[i];
@@ -137,9 +136,19 @@ async function parseExcelFile(file: File): Promise<LocalizationImport> {
       translations[code] = typeof value === "string" ? value : String(value ?? "");
     });
 
-    rows.push({ key, description, context: description, translations, type: rowType });
-    workbookRowMap[key] = i + 1; // Excel rows are 1-indexed
+    const normalizedRow = { key, description, context: description, translations, type: rowType };
+    if (rowByKey.has(key)) {
+      console.warn(`Duplicate localization key "${key}" detected while parsing ${file.name}. Using the last occurrence.`);
+    }
+    rowByKey.set(key, { row: normalizedRow, rowIndex: i });
   }
+
+  const sortedEntries = Array.from(rowByKey.entries()).sort((a, b) => a[1].rowIndex - b[1].rowIndex);
+  const rows = sortedEntries.map(([, entry]) => entry.row);
+  const workbookRowMap: Record<string, number> = {};
+  sortedEntries.forEach(([key, entry]) => {
+    workbookRowMap[key] = entry.rowIndex; // zero-based row index, header row is 0
+  });
 
   const descColumn = descIndex >= 0 ? { index: descIndex, header: header[descIndex] } : undefined;
   const typeColumn = typeIndex >= 0 ? { index: typeIndex, header: header[typeIndex] } : undefined;

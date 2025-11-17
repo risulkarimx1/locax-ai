@@ -121,9 +121,15 @@ async function writeXlsxSource({
     setCellValue(sheet, 0, columnIndex, text);
   });
 
-  const existingRowMap = workbookRowMap ?? {};
+  const existingRowMap = normalizeWorkbookRowMap(workbookRowMap);
   const updatedRowMap: Record<string, number> = {};
   const usedRowIndices: number[] = [];
+  const columnsToClear = getColumnIndicesToClear(
+    resolvedKeyIndex,
+    resolvedTypeColumn!.index,
+    resolvedDescColumn!.index,
+    updatedLanguageMap
+  );
 
   const existingIndices = Object.values(existingRowMap);
   let nextRowIndex = existingIndices.length ? Math.max(...existingIndices) + 1 : 1;
@@ -143,11 +149,23 @@ async function writeXlsxSource({
     });
   });
 
-  // Clear rows that no longer exist
+  // Clear rows that no longer exist according to the previous workbook map
   Object.entries(existingRowMap).forEach(([key, rowIndex]) => {
-    if (updatedRowMap[key]) return;
-    clearRow(sheet, rowIndex, [resolvedKeyIndex, resolvedTypeColumn!.index, resolvedDescColumn!.index, ...Object.values(updatedLanguageMap).map(col => col.index)]);
+    if (updatedRowMap[key] !== undefined) return;
+    clearRow(sheet, rowIndex, columnsToClear);
   });
+
+  // Remove duplicate/stale rows by scanning for keys that do not match the canonical row index
+  const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1:A1");
+  for (let rowIndex = 1; rowIndex <= range.e.r; rowIndex++) {
+    const keyCellValue = getCellStringValue(sheet, rowIndex, resolvedKeyIndex);
+    if (!keyCellValue) continue;
+
+    const canonicalIndex = updatedRowMap[keyCellValue];
+    if (canonicalIndex === undefined || canonicalIndex !== rowIndex) {
+      clearRow(sheet, rowIndex, columnsToClear);
+    }
+  }
 
   const maxRowIndex = usedRowIndices.length ? Math.max(...usedRowIndices) : 0;
   const maxColumnIndex = headerValues.length - 1;
@@ -207,6 +225,54 @@ function clearRow(sheet: XLSX.WorkSheet, rowIndex: number, columnIndices: number
     const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
     delete sheet[address];
   });
+}
+
+function getColumnIndicesToClear(
+  keyIndex: number,
+  typeIndex: number,
+  descIndex: number,
+  languageMap: Record<string, ColumnMetadata>
+): number[] {
+  const columns = [keyIndex, typeIndex, descIndex, ...Object.values(languageMap).map(col => col.index)];
+  const seen = new Set<number>();
+  columns.forEach(index => {
+    if (index >= 0) {
+      seen.add(index);
+    }
+  });
+  return Array.from(seen.values()).sort((a, b) => a - b);
+}
+
+function getCellStringValue(sheet: XLSX.WorkSheet, rowIndex: number, columnIndex: number): string {
+  const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+  const cell = sheet[address];
+  if (cell?.v === undefined || cell.v === null) {
+    return "";
+  }
+  return typeof cell.v === "string" ? cell.v.trim() : String(cell.v).trim();
+}
+
+function normalizeWorkbookRowMap(rowMap?: Record<string, number>): Record<string, number> {
+  if (!rowMap) {
+    return {};
+  }
+
+  const entries = Object.entries(rowMap);
+  if (!entries.length) {
+    return {};
+  }
+
+  const values = entries.map(([, rowIndex]) => rowIndex);
+  const looksLegacy = values.length > 0 && Math.min(...values) >= 2;
+  if (!looksLegacy) {
+    return { ...rowMap };
+  }
+
+  const normalized: Record<string, number> = {};
+  entries.forEach(([key, rowIndex]) => {
+    normalized[key] = Math.max(1, rowIndex - 1);
+  });
+  return normalized;
 }
 
 export function createBlankWorkbookBuffer(languages: string[], columnMap?: Record<string, ColumnMetadata>): ArrayBuffer {
