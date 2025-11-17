@@ -61,6 +61,7 @@ dialog:greeting,NPC initial greeting,Hello traveler!,¡Hola viajero!,こんに�
 - **Google Gemini**: Uses the `gemini-1.5-flash-latest` model via the Generative Language API.
 - **OpenRouter**: Uses the OpenAI-compatible chat completions endpoint. Pick any hosted model ID (e.g., `google/gemini-flash-1.5`) from [openrouter.ai/models](https://openrouter.ai/models) and provide your OpenRouter API key.
 - **Ollama (Local)**: Connects to a running `ollama serve` instance (default `http://127.0.0.1:11434`). Locax lists locally downloaded models so you can select and use them without any API keys.
+- **M2M100 (Local)**: Runs the open-source `facebook/m2m100_418M` translation model fully offline. Download the weights via `python scripts/m2m100/fetch.py`, start the FastAPI microservice (`python server/m2m100_service.py --port 9600`), then point Locax at `http://127.0.0.1:9600`. See [docs/m2m100_local_setup.md](docs/m2m100_local_setup.md) for a full walkthrough.
 
 Locax stores API keys, model choices, and endpoints locally per provider, so you can switch between OpenAI, Gemini, OpenRouter, and Ollama without re-entering settings. Pick the provider that matches your budget/latency needs and ensure translations comply with each platform's usage policies.
 

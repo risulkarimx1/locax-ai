@@ -1,4 +1,4 @@
-export type AIProvider = "openai" | "gemini" | "openrouter" | "ollama";
+export type AIProvider = "openai" | "gemini" | "openrouter" | "ollama" | "m2m100";
 export type GitStatus = "unknown" | "found" | "missing";
 
 export interface LocalizationRow {

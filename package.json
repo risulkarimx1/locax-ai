@@ -18,7 +18,9 @@
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win --x64",
-    "dist:linux": "npm run build && electron-builder --linux"
+    "dist:linux": "npm run build && electron-builder --linux",
+    "m2m100:download": "python3 scripts/m2m100/fetch.py",
+    "m2m100:serve": "python3 server/m2m100_service.py --port 9600"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

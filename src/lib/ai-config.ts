@@ -25,7 +25,7 @@ export function getStoredAiProvider(): AIProvider {
   }
 
   const stored = storage.getItem(PROVIDER_STORAGE_KEY);
-  if (stored === "gemini" || stored === "openrouter" || stored === "ollama") {
+  if (stored === "gemini" || stored === "openrouter" || stored === "ollama" || stored === "m2m100") {
     return stored;
   }
 

@@ -1,0 +1,43 @@
+{
+  "model_id": "facebook/m2m100_418M",
+  "display_name": "M2M100 418M",
+  "version": "1.0.0",
+  "publisher": "Meta AI",
+  "task": "translation",
+  "languages_supported": "201 x 201",
+  "default_precision": "float16",
+  "supported_precisions": ["float32", "float16", "int8"],
+  "default_endpoint": {
+    "url": "http://127.0.0.1:9600",
+    "translate_path": "/translate",
+    "health_path": "/health",
+    "metadata_path": "/metadata"
+  },
+  "artifacts": [
+    {
+      "filename": "pytorch_model.bin",
+      "size_estimate_mb": 1580,
+      "sha256": null
+    },
+    {
+      "filename": "tokenizer.json",
+      "size_estimate_mb": 55,
+      "sha256": null
+    },
+    {
+      "filename": "source.spm",
+      "size_estimate_mb": 24,
+      "sha256": null
+    },
+    {
+      "filename": "vocab.json",
+      "size_estimate_mb": 12,
+      "sha256": null
+    }
+  ],
+  "instructions": [
+    "Use scripts/m2m100/fetch.py to mirror the Hugging Face repository into ~/.locax/models/m2m100_418M",
+    "Weights default to float16; pass --precision int8 to request bitsandbytes quantization",
+    "Expose the runtime via server/m2m100_service.py on port 9600 to integrate with Locax"
+  ]
+}

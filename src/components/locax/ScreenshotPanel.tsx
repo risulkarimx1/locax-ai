@@ -106,7 +106,7 @@ export const ScreenshotPanel = ({
   const handleTranslate = async () => {
     if (!selectedRow) return;
     const provider = aiProvider ?? "openai";
-    const requiresApiKey = provider !== "ollama";
+    const requiresApiKey = provider !== "ollama" && provider !== "m2m100";
 
     if (requiresApiKey && !aiApiKey) {
       toast({

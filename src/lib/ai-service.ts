@@ -6,6 +6,9 @@ const GEMINI_MODEL = "gemini-1.5-flash-latest";
 const GEMINI_CHAT_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
+const DEFAULT_M2M100_ENDPOINT = "http://127.0.0.1:9600";
+
+const providersRequiringKeys: AIProvider[] = ["openai", "gemini", "openrouter"];
 
 type OpenRouterMessageChunk = string | { text?: string };
 type OpenRouterResponse = {
@@ -32,6 +35,7 @@ interface TranslationRequest {
   provider?: AIProvider;
   model?: string;
   endpoint?: string;
+  sourceLanguage?: string;
 }
 
 export async function generateTranslations({
@@ -42,8 +46,9 @@ export async function generateTranslations({
   provider = "openai",
   model,
   endpoint,
+  sourceLanguage = "en",
 }: TranslationRequest): Promise<Record<string, string>> {
-  if (provider !== "ollama" && !apiKey) {
+  if (providersRequiringKeys.includes(provider) && !apiKey) {
     throw new Error("Missing AI API key.");
   }
 
@@ -70,11 +75,20 @@ export async function generateTranslations({
     if (!model?.trim()) {
       throw new Error("Select an Ollama model before requesting translations.");
     }
-    const resolvedEndpoint = sanitizeEndpointUrl(endpoint);
+    const resolvedEndpoint = sanitizeEndpointUrl(endpoint, DEFAULT_OLLAMA_ENDPOINT);
     responseContent = await requestOllamaTranslation({
       endpoint: resolvedEndpoint,
       userPrompt,
       model: model.trim(),
+    });
+  } else if (provider === "m2m100") {
+    const resolvedEndpoint = sanitizeEndpointUrl(endpoint, DEFAULT_M2M100_ENDPOINT);
+    responseContent = await requestM2M100Translation({
+      endpoint: resolvedEndpoint,
+      sourceText: trimmedText,
+      languages,
+      context,
+      sourceLanguage,
     });
   } else {
     responseContent = await requestOpenAITranslation({ apiKey: apiKey!, userPrompt });
@@ -97,6 +111,14 @@ interface OllamaRequestPayload {
   endpoint: string;
   userPrompt: string;
   model: string;
+}
+
+interface M2M100RequestPayload {
+  endpoint: string;
+  sourceText: string;
+  languages: string[];
+  context?: string;
+  sourceLanguage?: string;
 }
 
 async function requestOpenAITranslation({ apiKey, userPrompt }: ProviderRequestPayload): Promise<string> {
@@ -257,6 +279,40 @@ async function requestOllamaTranslation({ endpoint, userPrompt, model }: OllamaR
   return content;
 }
 
+async function requestM2M100Translation({
+  endpoint,
+  sourceText,
+  languages,
+  context,
+  sourceLanguage = "en",
+}: M2M100RequestPayload): Promise<string> {
+  const response = await fetch(`${endpoint}/translate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      source_text: sourceText,
+      target_languages: languages,
+      context: context?.trim() || undefined,
+      source_language: sourceLanguage,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await safeReadText(response);
+    throw new Error(errorText || "Translation request failed.");
+  }
+
+  const data = await response.json();
+  const translations = data?.translations;
+  if (!translations || typeof translations !== "object") {
+    throw new Error("Local service returned an unexpected payload.");
+  }
+
+  return JSON.stringify(translations);
+}
+
 function parseTranslationContent(content: string, provider: AIProvider): Record<string, unknown> {
   try {
     return JSON.parse(content);
@@ -299,7 +355,7 @@ async function safeReadText(response: Response): Promise<string | undefined> {
   }
 }
 
-function sanitizeEndpointUrl(endpoint?: string): string {
-  const normalized = endpoint?.trim() || DEFAULT_OLLAMA_ENDPOINT;
+function sanitizeEndpointUrl(endpoint: string | undefined, fallback: string = DEFAULT_OLLAMA_ENDPOINT): string {
+  const normalized = endpoint?.trim() || fallback;
   return normalized.replace(/\/+$/, "");
 }

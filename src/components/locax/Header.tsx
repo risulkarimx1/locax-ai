@@ -82,6 +82,7 @@ export const Header = ({
   const { toast } = useToast();
   const displayProjectName = projectState.folderHandle?.name ?? projectState.projectName;
   const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434";
+  const DEFAULT_M2M100_ENDPOINT = "http://127.0.0.1:9600";
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [modelInput, setModelInput] = useState("");
@@ -102,17 +103,26 @@ export const Header = ({
       gemini: "Gemini",
       openrouter: "OpenRouter",
       ollama: "Ollama",
+      m2m100: "M2M100 (Local)",
     }),
     []
   );
   const activeProvider = projectState.aiProvider || DEFAULT_AI_PROVIDER;
   const activeProviderLabel = providerLabels[activeProvider];
-  const isAiConfigured = projectState.aiProvider === "ollama" ? Boolean(projectState.aiModel) : Boolean(projectState.aiApiKey);
+  const isAiConfigured = projectState.aiProvider === "ollama"
+    ? Boolean(projectState.aiModel)
+    : projectState.aiProvider === "m2m100"
+      ? Boolean(projectState.aiEndpoint || DEFAULT_M2M100_ENDPOINT)
+      : Boolean(projectState.aiApiKey);
   const ollamaSelectValue = useMemo(
     () => (ollamaModels.includes(modelInput) ? modelInput : undefined),
     [ollamaModels, modelInput]
   );
-  const sanitizeEndpoint = (value: string) => (value ? value.trim().replace(/\/+$/, "") : "");
+  const sanitizeEndpoint = (value?: string, fallback?: string) => {
+    const trimmed = value?.trim();
+    const resolved = trimmed || fallback || "";
+    return resolved.replace(/\/+$/, "");
+  };
 
   useEffect(() => {
     if (!aiDialogOpen) return;
@@ -122,11 +132,19 @@ export const Header = ({
     setApiKeyInput(projectState.aiApiKey || getStoredApiKey(provider) || "");
     const storedModel = projectState.aiModel || getStoredModel(provider) || "";
     setModelInput(provider === "openrouter" || provider === "ollama" ? storedModel : "");
-    const storedEndpoint =
-      provider === "ollama"
-        ? projectState.aiEndpoint || getStoredEndpoint(provider) || DEFAULT_OLLAMA_ENDPOINT
-        : "";
-    setEndpointInput(storedEndpoint);
+    const storedEndpoint = getStoredEndpoint(provider);
+    const stateEndpoint = projectState.aiProvider === provider ? projectState.aiEndpoint : undefined;
+    if (provider === "ollama") {
+      setEndpointInput(
+        sanitizeEndpoint(stateEndpoint || storedEndpoint || DEFAULT_OLLAMA_ENDPOINT, DEFAULT_OLLAMA_ENDPOINT)
+      );
+    } else if (provider === "m2m100") {
+      setEndpointInput(
+        sanitizeEndpoint(stateEndpoint || storedEndpoint || DEFAULT_M2M100_ENDPOINT, DEFAULT_M2M100_ENDPOINT)
+      );
+    } else {
+      setEndpointInput("");
+    }
     setModelManuallySet(Boolean(storedModel));
     if (provider !== "ollama") {
       setOllamaModels([]);
@@ -145,7 +163,7 @@ export const Header = ({
       return;
     }
 
-    const base = sanitizeEndpoint(endpointInput || DEFAULT_OLLAMA_ENDPOINT);
+    const base = sanitizeEndpoint(endpointInput, DEFAULT_OLLAMA_ENDPOINT);
     if (!base) return;
 
     let cancelled = false;
@@ -204,7 +222,23 @@ export const Header = ({
     setModelInput(value === "openrouter" || value === "ollama" ? storedModel : "");
     setModelManuallySet(Boolean(storedModel));
     if (value === "ollama") {
-      setEndpointInput(getStoredEndpoint(value) || projectState.aiEndpoint || DEFAULT_OLLAMA_ENDPOINT);
+      setEndpointInput(
+        sanitizeEndpoint(
+          (projectState.aiProvider === "ollama" ? projectState.aiEndpoint : undefined) ||
+            getStoredEndpoint(value) ||
+            DEFAULT_OLLAMA_ENDPOINT,
+          DEFAULT_OLLAMA_ENDPOINT
+        )
+      );
+    } else if (value === "m2m100") {
+      setEndpointInput(
+        sanitizeEndpoint(
+          (projectState.aiProvider === "m2m100" ? projectState.aiEndpoint : undefined) ||
+            getStoredEndpoint(value) ||
+            DEFAULT_M2M100_ENDPOINT,
+          DEFAULT_M2M100_ENDPOINT
+        )
+      );
     } else {
       setEndpointInput("");
       setOllamaModels([]);
@@ -218,7 +252,7 @@ export const Header = ({
   };
 
   const handleSaveApiKey = () => {
-    const requiresApiKey = providerSelection !== "ollama";
+    const requiresApiKey = providerSelection !== "ollama" && providerSelection !== "m2m100";
     const trimmedKey = requiresApiKey ? apiKeyInput.trim() : "";
     const resolvedApiKey = requiresApiKey ? trimmedKey || undefined : undefined;
     const trimmedModel =
@@ -227,7 +261,9 @@ export const Header = ({
         : undefined;
     const resolvedEndpoint =
       providerSelection === "ollama"
-        ? sanitizeEndpoint(endpointInput || DEFAULT_OLLAMA_ENDPOINT) || DEFAULT_OLLAMA_ENDPOINT
+        ? sanitizeEndpoint(endpointInput, DEFAULT_OLLAMA_ENDPOINT) || DEFAULT_OLLAMA_ENDPOINT
+        : providerSelection === "m2m100"
+          ? sanitizeEndpoint(endpointInput, DEFAULT_M2M100_ENDPOINT) || DEFAULT_M2M100_ENDPOINT
         : undefined;
 
     if (providerSelection === "openrouter" && resolvedApiKey && !trimmedModel) {
@@ -258,12 +294,16 @@ export const Header = ({
       aiApiKey: resolvedApiKey,
       aiProvider: providerSelection,
       aiModel: providerSelection === "openrouter" || providerSelection === "ollama" ? trimmedModel : undefined,
-      aiEndpoint: providerSelection === "ollama" ? resolvedEndpoint : undefined,
+      aiEndpoint: providerSelection === "ollama" || providerSelection === "m2m100" ? resolvedEndpoint : undefined,
     });
     setAiDialogOpen(false);
 
     const connected =
-      providerSelection === "ollama" ? Boolean(trimmedModel) : Boolean(resolvedApiKey);
+      providerSelection === "ollama"
+        ? Boolean(trimmedModel)
+        : providerSelection === "m2m100"
+          ? Boolean(resolvedEndpoint)
+          : Boolean(resolvedApiKey);
 
     toast({
       title: connected ? "AI Connected" : "AI Disconnected",
@@ -584,7 +624,7 @@ export const Header = ({
           <DialogHeader>
             <DialogTitle>Connect AI</DialogTitle>
             <DialogDescription>
-              Choose OpenAI, Gemini, OpenRouter, or Ollama and configure the required credentials to enable AI-powered context generation and translations.
+              Choose OpenAI, Gemini, OpenRouter, Ollama, or a local M2M100 runtime and configure the required details to enable AI-powered context generation and translations.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -599,10 +639,11 @@ export const Header = ({
                   <SelectItem value="gemini">Gemini</SelectItem>
                   <SelectItem value="openrouter">OpenRouter</SelectItem>
                   <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                  <SelectItem value="m2m100">M2M100 (Local)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {providerSelection !== "ollama" && (
+            {providerSelection !== "ollama" && providerSelection !== "m2m100" && (
               <div className="space-y-2">
                 <Label htmlFor="apiKey">API Key</Label>
                 <Input
@@ -683,6 +724,31 @@ export const Header = ({
                   <p className="text-xs text-muted-foreground">
                     Select a detected model or type one manually. No API key is required for local models.
                   </p>
+                </div>
+              </div>
+            )}
+            {providerSelection === "m2m100" && (
+              <div className="space-y-4 rounded-md border p-4 bg-muted/30">
+                <div className="space-y-2">
+                  <Label htmlFor="m2mEndpoint">Local Endpoint</Label>
+                  <Input
+                    id="m2mEndpoint"
+                    placeholder="http://127.0.0.1:9600"
+                    value={endpointInput}
+                    onChange={(e) => setEndpointInput(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Start the FastAPI service with <code>python server/m2m100_service.py --port 9600</code> (see <code>docs/m2m100_local_setup.md</code>).
+                  </p>
+                </div>
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  <p>
+                    Download weights: <code>python scripts/m2m100/fetch.py</code>
+                  </p>
+                  <p>
+                    The service exposes <code>/translate</code>, <code>/health</code>, and <code>/metadata</code> on the configured port.
+                  </p>
+                  <p>No API key required — keep the endpoint private on your network.</p>
                 </div>
               </div>
             )}
